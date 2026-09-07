@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeRace C++ - Carrera Multijugador de Mecanografía</title>
+  <meta name="description" content="Compite en tiempo real en una carrera urbana 3D escribiendo fragmentos de código C++.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Orbitron:wght@500;700;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <!-- WebGL Canvas for 3D Urban Race -->
+    <canvas id="race-canvas"></canvas>
+
+    <!-- Main UI Container -->
+    <div id="ui-container">
+      
+      <!-- LOBBY SCREEN -->
+      <section id="lobby-screen" class="screen active">
+        <div class="lobby-card glass-panel">
+          <div class="logo-container">
+            <span class="logo-badge">C++ EDITION</span>
+            <h1 class="logo-title"><span class="neon-text-blue">CODE</span><span class="neon-text-red">RACE</span></h1>
+            <p class="logo-subtitle">Carreras de Mecanografía Multijugador en Tiempo Real</p>
+          </div>
+
+          <div class="player-customizer">
+            <div class="form-group">
+              <label for="player-name">Tu Nombre de Piloto</label>
+              <input type="text" id="player-name" placeholder="Ej. CyberCoder99" maxlength="15" autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label>Color de tu Vehículo</label>
+              <div class="color-picker" id="color-picker">
+                <button class="color-btn active" data-color="#00f3ff" style="--c: #00f3ff" title="Cian Neón"></button>
+                <button class="color-btn" data-color="#ff0055" style="--c: #ff0055" title="Rojo Carmesí"></button>
+                <button class="color-btn" data-color="#00ff66" style="--c: #00ff66" title="Verde Tóxico"></button>
+                <button class="color-btn" data-color="#9d4edd" style="--c: #9d4edd" title="Violeta Eléctrico"></button>
+                <button class="color-btn" data-color="#ffb703" style="--c: #ffb703" title="Dorado Solar"></button>
+                <button class="color-btn" data-color="#ff6b00" style="--c: #ff6b00" title="Naranja Plasma"></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lobby-actions">
+            <!-- Main Tabs/Panels -->
+            <div class="mode-select">
+              <button id="btn-create-room" class="btn btn-primary btn-glow">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                Crear Sala Multijugador
+              </button>
+              <button id="btn-show-join" class="btn btn-secondary">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/></svg>
+                Unirse con Código
+              </button>
+            </div>
+
+            <!-- Join Code Form (Hidden by default) -->
+            <div id="join-form" class="join-form hidden">
+              <div class="input-with-button">
+                <input type="text" id="room-code-input" placeholder="CÓDIGO DE SALA (Ej. RC8X2A)" maxlength="8">
+                <button id="btn-join-room" class="btn btn-accent">Conectar</button>
+              </div>
+              <button id="btn-cancel-join" class="btn-text">← Volver</button>
+            </div>
+          </div>
+
+          <!-- LOBBY ROOM WAITING AREA (Hidden until room is created/joined) -->
+          <div id="room-waiting" class="room-waiting hidden">
+            <div class="room-header">
+              <div class="room-info">
+                <span class="label">CÓDIGO DE SALA:</span>
+                <span id="display-room-code" class="room-code-badge">-------</span>
+                <button id="btn-copy-code" class="btn-icon" title="Copiar código">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+              </div>
+              <span id="room-status-badge" class="status-badge">Esperando Pilotos...</span>
+            </div>
+
+            <div class="players-list-container">
+              <h3>Pilotos en Grilla de Salida (<span id="player-count">1</span>/4):</h3>
+              <ul id="players-list" class="players-list">
+                <!-- Dynamic Player Rows -->
+              </ul>
+            </div>
+
+            <div class="room-footer">
+              <button id="btn-start-race" class="btn btn-success btn-large btn-glow hidden">
+                ¡INICIAR CARRERA MULTIJUGADOR!
+              </button>
+              <p id="guest-waiting-msg" class="waiting-text hidden">Esperando a que el anfitrión inicie la carrera...</p>
+              <button id="btn-leave-room" class="btn btn-danger-outline">Salir de la Sala</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- COUNTDOWN OVERLAY -->
+      <div id="countdown-overlay" class="countdown-overlay hidden">
+        <div id="countdown-number" class="countdown-number">3</div>
+        <div id="countdown-subtext" class="countdown-subtext">¡PREPÁRATE PARA ESCRIBIR!</div>
+      </div>
+
+      <!-- HUD / RACE SCREEN -->
+      <section id="race-screen" class="screen">
+        
+        <!-- TOP CODE DISPLAY BOX -->
+        <div class="code-box-wrapper glass-panel">
+          <div class="code-box-header">
+            <div class="code-title">
+              <span class="tag">C++</span>
+              <span id="code-snippet-title">C++ Functions & Logic</span>
+            </div>
+            <div class="block-indicator">
+              BLOQUE <span id="current-block-num" class="highlight">1</span> DE 5
+              <div class="block-dots">
+                <span class="dot active"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Code View Area -->
+          <div id="code-display" class="code-display" tabindex="0">
+            <!-- Dynamic lines rendered by TypingEngine -->
+          </div>
+          
+          <div class="typing-tip">
+            <span>Tip: Mantén el ritmo de tecleo sin errores para activar el <strong>NITRO</strong> y acelerar al máximo!</span>
+          </div>
+        </div>
+
+        <!-- RACE HUD OVERLAY (SPEEDOMETER & RADAR) -->
+        <div class="hud-bottom">
+          <!-- Speedometer Dial / Stats -->
+          <div class="speedometer-panel glass-panel">
+            <div class="speed-readout">
+              <span id="hud-speed" class="speed-value">0</span>
+              <span class="speed-unit">KM/H</span>
+            </div>
+            
+            <div class="stats-row">
+              <div class="stat-item">
+                <span class="stat-label">WPM</span>
+                <span id="hud-wpm" class="stat-value neon-cyan">0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">PRECISIÓN</span>
+                <span id="hud-accuracy" class="stat-value neon-green">100%</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">TIEMPO</span>
+                <span id="hud-timer" class="stat-value">00:00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vertical Track Radar / Mini-Map -->
+          <div class="track-radar glass-panel">
+            <div class="radar-header">
+              <span>META (B5)</span>
+            </div>
+            <div id="radar-track" class="radar-track">
+              <div class="finish-line-marker"></div>
+              <!-- Player markers inserted dynamically -->
+            </div>
+            <div class="radar-footer">
+              <span>SALIDA</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESULTS SCREEN -->
+      <section id="results-screen" class="screen">
+        <div class="results-card glass-panel">
+          <div class="results-header">
+            <h1 class="results-title">¡CARRERA FINALIZADA!</h1>
+            <p id="winner-announcement" class="winner-text">¡Ganador: Piloto 1!</p>
+          </div>
+
+          <div class="podium-container">
+            <ul id="leaderboard-list" class="leaderboard-list">
+              <!-- Dynamic Leaderboard Rows -->
+            </ul>
+          </div>
+
+          <!-- Personal Telemetry -->
+          <div class="telemetry-grid">
+            <div class="telemetry-box">
+              <span class="telemetry-label">WPM Final</span>
+              <span id="res-wpm" class="telemetry-value neon-cyan">0</span>
+            </div>
+            <div class="telemetry-box">
+              <span class="telemetry-label">WPM Pico</span>
+              <span id="res-peak-wpm" class="telemetry-value neon-yellow">0</span>
+            </div>
+            <div class="telemetry-box">
+              <span class="telemetry-label">Precisión</span>
+              <span id="res-accuracy" class="telemetry-value neon-green">100%</span>
+            </div>
+            <div class="telemetry-box">
+              <span class="telemetry-label">Tiempo Total</span>
+              <span id="res-time" class="telemetry-value">00:00</span>
+            </div>
+          </div>
+
+          <div class="results-actions">
+            <button id="btn-play-again" class="btn btn-primary btn-glow">Volver a la Sala</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Mute / Sound Controller -->
+      <button id="btn-toggle-audio" class="audio-toggle-btn" title="Activar/Desactivar Sonido">
+        <svg id="icon-sound-on" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
+        <svg id="icon-sound-off" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="hidden"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
