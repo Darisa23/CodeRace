@@ -3,6 +3,6 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   server: {
     host: true,
-    allowedHosts: ['.trycloudflare.com']
+    allowedHosts: ['.trycloudflare.com', 'scriptraceun.onrender.com']
   }
 })
