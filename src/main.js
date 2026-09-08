@@ -148,6 +148,10 @@ class CodeRaceApp {
   }
 
   async handleCreateRoom() {
+    if (this.btnCreateRoom.disabled) return;
+    this.btnCreateRoom.disabled = true;
+    this.btnCreateRoom.textContent = 'Creando sala...';
+
     const name = this.getPlayerName();
     try {
       const room = await this.multiplayerEngine.createRoom(name, this.selectedColor);
@@ -156,16 +160,27 @@ class CodeRaceApp {
       this.btnStartRace.classList.remove('hidden');
       this.guestWaitingMsg.classList.add('hidden');
     } catch (err) {
-      alert('Error creando la sala: ' + err.message);
+      alert('⚠️ Error creando la sala: ' + err.message);
+    } finally {
+      this.btnCreateRoom.disabled = false;
+      this.btnCreateRoom.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Crear Sala Multijugador
+      `;
     }
   }
 
   async handleJoinRoom() {
+    if (this.btnJoinRoom.disabled) return;
     const code = this.roomCodeInput.value.trim();
     if (!code) {
       alert('Por favor ingresa un código de sala válido.');
       return;
     }
+
+    this.btnJoinRoom.disabled = true;
+    this.btnJoinRoom.textContent = 'Conectando...';
+
     const name = this.getPlayerName();
     try {
       const room = await this.multiplayerEngine.joinRoom(code, name, this.selectedColor);
@@ -173,8 +188,12 @@ class CodeRaceApp {
       this.roomWaiting.classList.remove('hidden');
       this.btnStartRace.classList.add('hidden');
       this.guestWaitingMsg.classList.remove('hidden');
+      this.joinForm.classList.add('hidden');
     } catch (err) {
-      alert('No se pudo conectar a la sala: ' + (err.message || 'Código incorrecto'));
+      alert('🚫 ' + (err.message || 'No se pudo ingresar a la sala.'));
+    } finally {
+      this.btnJoinRoom.disabled = false;
+      this.btnJoinRoom.textContent = 'Conectar';
     }
   }
 
