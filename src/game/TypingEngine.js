@@ -106,20 +106,26 @@ export class TypingEngine {
   handleKeyDown(e) {
     if (!this.isActive) return;
 
-    // Ignore modifier keys alone
-    if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape'].includes(e.key)) {
-      if (e.key === 'Tab') e.preventDefault(); // Prevent focus switch
+    // Detect AltGr state (Windows AltGr sets e.altKey & e.ctrlKey, or getModifierState('AltGraph'))
+    const isAltGraph = e.altKey || (typeof e.getModifierState === 'function' && e.getModifierState('AltGraph'));
+
+    // Allow browser shortcuts (like Ctrl+R, Ctrl+C, Cmd+R, Cmd+C) when Ctrl/Cmd is pressed without AltGr
+    if ((e.ctrlKey || e.metaKey) && !isAltGraph) {
+      return;
+    }
+
+    // Ignore non-printable/modifier/navigation/dead keys (e.key.length > 1 or 'Dead' / 'Unidentified'),
+    // EXCEPT for 'Enter' (maps to newline) and 'Backspace' (clears error state).
+    if (e.key !== 'Enter' && e.key !== 'Backspace' && (e.key.length > 1 || e.key === 'Dead' || e.key === 'Unidentified')) {
+      if (e.key === 'Tab') {
+        e.preventDefault(); // Prevent tab focus switch
+      }
       return;
     }
 
     e.preventDefault();
 
-    const expectedChar = this.codeText[this.cursorIndex];
-    this.totalKeystrokes++;
-    const now = Date.now();
-    this.lastTypedTime = now;
-
-    // Handle Backspace if in error state
+    // Handle Backspace
     if (e.key === 'Backspace') {
       if (this.hasErrorState) {
         this.hasErrorState = false;
@@ -134,6 +140,11 @@ export class TypingEngine {
     if (e.key === 'Enter') {
       typedKey = '\n';
     }
+
+    const expectedChar = this.codeText[this.cursorIndex];
+    this.totalKeystrokes++;
+    const now = Date.now();
+    this.lastTypedTime = now;
 
     // Check key correctness
     if (typedKey === expectedChar && !this.hasErrorState) {

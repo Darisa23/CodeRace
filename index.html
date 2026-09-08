@@ -1,18 +1,23 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CodeRace C++ - Carrera Multijugador de Mecanografía</title>
-  <meta name="description" content="Compite en tiempo real en una carrera urbana 3D escribiendo fragmentos de código C++.">
-  
+  <title>ScriptRace C++ - Carrera Multijugador de Mecanografía</title>
+  <meta name="description"
+    content="Compite en tiempo real en una carrera urbana 3D escribiendo fragmentos de código C++.">
+
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Orbitron:wght@500;700;900&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-  
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Orbitron:wght@500;700;900&family=Inter:wght@400;600;700;800&display=swap"
+    rel="stylesheet">
+
   <link rel="stylesheet" href="/src/styles/main.css">
 </head>
+
 <body>
   <div id="app">
     <!-- WebGL Canvas for 3D Urban Race -->
@@ -20,7 +25,7 @@
 
     <!-- Main UI Container -->
     <div id="ui-container">
-      
+
       <!-- LOBBY SCREEN -->
       <section id="lobby-screen" class="screen active">
         <div class="lobby-card glass-panel">
@@ -53,11 +58,15 @@
             <!-- Main Tabs/Panels -->
             <div class="mode-select">
               <button id="btn-create-room" class="btn btn-primary btn-glow">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
                 Crear Sala Multijugador
               </button>
               <button id="btn-show-join" class="btn btn-secondary">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/></svg>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                </svg>
                 Unirse con Código
               </button>
             </div>
@@ -79,7 +88,10 @@
                 <span class="label">CÓDIGO DE SALA:</span>
                 <span id="display-room-code" class="room-code-badge">-------</span>
                 <button id="btn-copy-code" class="btn-icon" title="Copiar código">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
                 </button>
               </div>
               <span id="room-status-badge" class="status-badge">Esperando Pilotos...</span>
@@ -96,7 +108,8 @@
               <button id="btn-start-race" class="btn btn-success btn-large btn-glow hidden">
                 ¡INICIAR CARRERA MULTIJUGADOR!
               </button>
-              <p id="guest-waiting-msg" class="waiting-text hidden">Esperando a que el anfitrión inicie la carrera...</p>
+              <p id="guest-waiting-msg" class="waiting-text hidden">Esperando a que el anfitrión inicie la carrera...
+              </p>
               <button id="btn-leave-room" class="btn btn-danger-outline">Salir de la Sala</button>
             </div>
           </div>
@@ -111,7 +124,7 @@
 
       <!-- HUD / RACE SCREEN -->
       <section id="race-screen" class="screen">
-        
+
         <!-- TOP CODE DISPLAY BOX -->
         <div class="code-box-wrapper glass-panel">
           <div class="code-box-header">
@@ -135,9 +148,10 @@
           <div id="code-display" class="code-display" tabindex="0">
             <!-- Dynamic lines rendered by TypingEngine -->
           </div>
-          
+
           <div class="typing-tip">
-            <span>Tip: Mantén el ritmo de tecleo sin errores para activar el <strong>NITRO</strong> y acelerar al máximo!</span>
+            <span>Tip: Mantén el ritmo de tecleo sin errores para activar el <strong>NITRO</strong> y acelerar al
+              máximo!</span>
           </div>
         </div>
 
@@ -149,7 +163,7 @@
               <span id="hud-speed" class="speed-value">0</span>
               <span class="speed-unit">KM/H</span>
             </div>
-            
+
             <div class="stats-row">
               <div class="stat-item">
                 <span class="stat-label">WPM</span>
@@ -224,12 +238,22 @@
 
       <!-- Mute / Sound Controller -->
       <button id="btn-toggle-audio" class="audio-toggle-btn" title="Activar/Desactivar Sonido">
-        <svg id="icon-sound-on" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>
-        <svg id="icon-sound-off" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="hidden"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+        <svg id="icon-sound-on" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          <path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07" />
+        </svg>
+        <svg id="icon-sound-off" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" class="hidden">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+          <line x1="23" y1="9" x2="17" y2="15" />
+          <line x1="17" y1="9" x2="23" y2="15" />
+        </svg>
       </button>
     </div>
   </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>
