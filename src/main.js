@@ -287,10 +287,23 @@ class CodeRaceApp {
     this.codeSnippetTitleEl.textContent = this.currentSnippetSet.title;
     this.typingEngine.startRace(this.currentSnippetSet);
 
-    // 3. Start HUD Timer
+    // 3. Start HUD Timer & Idle Speed Tick
     this.raceStartTime = Date.now();
     if (this.timerInterval) clearInterval(this.timerInterval);
-    this.timerInterval = setInterval(() => this.updateHUDTimer(), 1000);
+    this.timerInterval = setInterval(() => {
+      this.updateHUDTimer();
+      // Tick effective speed decay if idle
+      if (this.typingEngine && this.typingEngine.isActive) {
+        const effectiveWpm = this.typingEngine.getEffectiveSpeed();
+        const speedKmH = Math.round(effectiveWpm * 1.6);
+        this.hudSpeedEl.textContent = speedKmH;
+        this.soundEngine.updateEngineSpeed(effectiveWpm);
+        const localId = this.multiplayerEngine.myPeerId;
+        if (localId) {
+          this.raceEngine.updatePlayerProgress(localId, this.typingEngine.getTotalRaceProgressPercent(), effectiveWpm);
+        }
+      }
+    }, 200);
   }
 
   handleCharacterTyped(stats) {
@@ -306,8 +319,9 @@ class CodeRaceApp {
 
     // Update 3D car & multiplayer state
     const progressPercent = stats.totalProgressPercent;
-    this.raceEngine.updatePlayerProgress(this.multiplayerEngine.myPeerId, progressPercent, stats.wpm);
-    this.updateRadarDot(this.multiplayerEngine.myPeerId, progressPercent);
+    const localId = this.multiplayerEngine.myPeerId;
+    this.raceEngine.updatePlayerProgress(localId, progressPercent, stats.wpm);
+    this.updateRadarDot(localId, progressPercent);
 
     // Broadcast to peers
     this.multiplayerEngine.sendProgress(progressPercent, stats.wpm, this.typingEngine.currentBlockIndex + 1);

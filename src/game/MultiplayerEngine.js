@@ -22,6 +22,10 @@ export class MultiplayerEngine {
     this.initSocket();
   }
 
+  get myPeerId() {
+    return this.mySocketId || (this.socket ? this.socket.id : null);
+  }
+
   initSocket() {
     // Connect to same origin host
     this.socket = io(window.location.origin, {

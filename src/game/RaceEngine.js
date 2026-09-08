@@ -246,29 +246,37 @@ export class RaceEngine {
       [-1.1, 0.4, -1.3], [1.1, 0.4, -1.3],
       [-1.1, 0.4, 1.3],  [1.1, 0.4, 1.3]
     ];
+    const wheels = [];
     wheelPositions.forEach(pos => {
       const wheel = new THREE.Mesh(wheelGeo, wheelMat);
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(...pos);
       carGroup.add(wheel);
+      wheels.push(wheel);
     });
+    carGroup.userData.wheels = wheels;
+
     // Underglow Light
     const underglow = new THREE.PointLight(mainColor, 2, 6);
     underglow.position.set(0, 0.2, 0);
     carGroup.add(underglow);
+
     return carGroup;
   }
+
   addPlayerCar(peerId, colorHex, laneIndex, name, isLocal = false) {
     const mesh = this.createCarMesh(colorHex);
     const laneX = this.lanesX[laneIndex % 4];
     mesh.position.set(laneX, 0, 0); // Start position Z = 0
     this.scene.add(mesh);
+
     if (isLocal) {
       this.localPlayerId = peerId;
       // Position camera relative to local player lane
       this.camera.position.set(laneX, 4.2, 10);
       this.camera.lookAt(laneX, 1.5, -40);
     }
+
     this.cars.set(peerId, {
       peerId,
       mesh,
@@ -281,6 +289,7 @@ export class RaceEngine {
       isLocal
     });
   }
+
   updatePlayerProgress(peerId, progressPercent, wpm) {
     const carData = this.cars.get(peerId);
     if (carData) {
@@ -288,6 +297,7 @@ export class RaceEngine {
       carData.wpm = wpm;
     }
   }
+
   removePlayerCar(peerId) {
     const carData = this.cars.get(peerId);
     if (carData) {
@@ -295,6 +305,7 @@ export class RaceEngine {
       this.cars.delete(peerId);
     }
   }
+
   start() {
     this.isRunning = true;
     this.lastTime = performance.now();
@@ -313,36 +324,44 @@ export class RaceEngine {
     const delta = Math.min(0.1, (now - this.lastTime) / 1000);
     this.lastTime = now;
 
-  // 1. Update cars position based on progress % (0 to 100%)
-  let localWPM = 0;
-  this.cars.forEach(car => {
-    const prevZ = car.mesh.position.z;
+    let localWPM = 0;
 
-    // Lerp smooth interpolation towards target progress
-    car.currentProgress += (car.targetProgress - car.currentProgress) * (delta * 6);
+    this.cars.forEach(car => {
+      // Lerp smooth interpolation towards target progress
+      const lerpSpeed = delta * 8;
+      car.currentProgress += (car.targetProgress - car.currentProgress) * Math.min(1, lerpSpeed);
 
-    // Calculate world Z position (0 to -trackLength)
-    const targetZ = -(car.currentProgress / 100) * this.trackLength;
-    car.mesh.position.z = targetZ;
+      // Calculate world Z position (0 to -trackLength)
+      const targetZ = -(car.currentProgress / 100) * this.trackLength;
+      car.mesh.position.z = targetZ;
 
-    if (car.isLocal) {
-      localWPM = car.wpm;
-      // velocidad real = cuánto avanzó el auto este frame (no el wpm crudo)
-      this.currentSpeed = (prevZ - targetZ) / Math.max(delta, 0.0001);
+      // Rotate wheels based on WPM / movement
+      if (car.mesh.userData.wheels) {
+        const wheelSpeed = (car.wpm || 0) * 0.15 + (car.isLocal && car.wpm > 0 ? 4 : 0);
+        car.mesh.userData.wheels.forEach(w => {
+          w.rotation.x += wheelSpeed * delta;
+        });
+      }
 
-      // Camera smoothly follows player car along Z axis (como estaba original)
-      this.camera.position.z = car.mesh.position.z + 10;
-      this.camera.lookAt(car.mesh.position.x, 1.5, car.mesh.position.z - 40);
+      if (car.isLocal) {
+        localWPM = car.wpm || 0;
+
+        // Camera smoothly follows player car along Z axis
+        const targetCamZ = car.mesh.position.z + 10;
+        this.camera.position.z += (targetCamZ - this.camera.position.z) * Math.min(1, delta * 10);
+        this.camera.position.x += (car.mesh.position.x - this.camera.position.x) * Math.min(1, delta * 10);
+        this.camera.lookAt(car.mesh.position.x, 1.5, car.mesh.position.z - 40);
+      }
+    });
+
+    // 2. Animate Road Texture movement proportionally to WPM
+    if (this.roadMaterial && this.roadMaterial.map) {
+      const roadSpeed = localWPM > 0 ? (localWPM * 0.08 + 0.5) : 0;
+      this.roadMaterial.map.offset.y -= roadSpeed * delta;
     }
-  });
 
-  // 2. Animate Road Texture movement según el avance REAL del auto local
-  if (this.roadMaterial && this.roadMaterial.map) {
-    this.roadMaterial.map.offset.y -= this.currentSpeed * delta * 0.05;
+    this.renderer.render(this.scene, this.camera);
   }
-
-  this.renderer.render(this.scene, this.camera);
-}
   onResize() {
     if (!this.camera || !this.renderer) return;
     this.camera.aspect = window.innerWidth / window.innerHeight;
