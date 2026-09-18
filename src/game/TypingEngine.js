@@ -7,6 +7,7 @@ export class TypingEngine {
     this.onBlockCompleted = options.onBlockCompleted || (() => {});
     this.onRaceCompleted = options.onRaceCompleted || (() => {});
     this.onError = options.onError || (() => {});
+    this.onTimeUp = options.onTimeUp || (() => {}); // NUEVO: callback cuando se acaba el tiempo límite
 
     this.snippetSet = null;
     this.currentBlockIndex = 0; // 0 to 4
@@ -25,6 +26,10 @@ export class TypingEngine {
     this.isActive = false;
 
     this.hasErrorState = false;
+
+    // NUEVO: límite de tiempo de la carrera (por defecto 5 minutos)
+    this.timeLimitMs = options.timeLimitMs || 5 * 60 * 1000;
+    this.timeLimitTimer = null;
 
     // Bind event handlers
     this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -45,11 +50,20 @@ export class TypingEngine {
 
     this.loadBlock(0);
     window.addEventListener('keydown', this.handleKeyDown);
+
+    // NUEVO: arranca el contador de límite de tiempo
+    this.timeLimitTimer = setTimeout(() => this.handleTimeUp(), this.timeLimitMs);
   }
 
   stop() {
     this.isActive = false;
     window.removeEventListener('keydown', this.handleKeyDown);
+
+    // NUEVO: limpiar el timer de límite de tiempo si sigue activo
+    if (this.timeLimitTimer) {
+      clearTimeout(this.timeLimitTimer);
+      this.timeLimitTimer = null;
+    }
   }
 
   loadBlock(blockIndex) {
@@ -183,11 +197,13 @@ export class TypingEngine {
           // RACE COMPLETED (Completed all 5 blocks!)
           this.stop();
           this.onRaceCompleted({
+            completed: true, // NUEVO: terminó la carrera completa antes del límite de tiempo
             totalTimeMs: Date.now() - this.startTime,
             wpm: this.currentWPM,
             peakWPM: this.peakWPM,
             accuracy: this.accuracy,
-            errorCount: this.errorCount
+            errorCount: this.errorCount,
+            totalProgressPercent: 100 // NUEVO: para comparar de forma consistente con onTimeUp
           });
         }
       }
@@ -239,5 +255,22 @@ export class TypingEngine {
     const completedBlocksRatio = this.currentBlockIndex * blockWeight;
     const currentBlockRatio = (this.cursorIndex / this.codeText.length) * blockWeight;
     return Math.min(100, (completedBlocksRatio + currentBlockRatio) * 100);
+  }
+
+  // NUEVO: se dispara cuando se agota el timeLimitMs sin haber completado la carrera
+  handleTimeUp() {
+    if (!this.isActive) return; // ya terminó por otra vía (ej. completó los 5 bloques), no hacer nada
+
+    this.stop();
+
+    this.onTimeUp({
+      completed: false, // no llegó a terminar los 5 bloques
+      totalTimeMs: this.timeLimitMs,
+      wpm: this.currentWPM,
+      peakWPM: this.peakWPM,
+      accuracy: this.accuracy,
+      errorCount: this.errorCount,
+      totalProgressPercent: this.getTotalRaceProgressPercent() // clave para desempatar por quién llegó más lejos
+    });
   }
 }
