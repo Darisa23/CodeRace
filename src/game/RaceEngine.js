@@ -29,8 +29,8 @@ export class RaceEngine {
   init() {
     // 1. Scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x060810);
-    this.scene.fog = new THREE.FogExp2(0x060810, 0.008);
+    this.scene.background = new THREE.Color(0x050304);
+    this.scene.fog = new THREE.FogExp2(0x050304, 0.008);
     // 2. Camera - FIXED Perspective Camera looking down the highway
     this.camera = new THREE.PerspectiveCamera(
       60,
@@ -53,14 +53,14 @@ export class RaceEngine {
     // 4. Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     this.scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0x00f3ff, 0.8);
+    const dirLight = new THREE.DirectionalLight(0xff1733, 0.8);
     dirLight.position.set(20, 50, 20);
     this.scene.add(dirLight);
     // Cyan & Pink Ambient Neon Point Lights
-    const neonLight1 = new THREE.PointLight(0x00f3ff, 2, 80);
+    const neonLight1 = new THREE.PointLight(0xff1733, 2, 80);
     neonLight1.position.set(-15, 10, -50);
     this.scene.add(neonLight1);
-    const neonLight2 = new THREE.PointLight(0xff0055, 2, 80);
+    const neonLight2 = new THREE.PointLight(0xc4001a, 2, 80);
     neonLight2.position.set(15, 10, -100);
     this.scene.add(neonLight2);
     // 5. Build Environment
@@ -80,15 +80,15 @@ export class RaceEngine {
     canvas.height = 1024;
     const ctx = canvas.getContext('2d');
     
-    ctx.fillStyle = '#0c0f17';
+    ctx.fillStyle = '#0c0809';
     ctx.fillRect(0, 0, 512, 1024);
     
     // Outer metallic borders
-    ctx.fillStyle = '#00f3ff';
+    ctx.fillStyle = '#ff1733';
     ctx.fillRect(0, 0, 8, 1024);
     ctx.fillRect(504, 0, 8, 1024);
     // Lane divider dashed neon lines
-    ctx.strokeStyle = 'rgba(0, 243, 255, 0.6)';
+    ctx.strokeStyle = 'rgba(255, 23, 51, 0.6)';
     ctx.lineWidth = 4;
     ctx.setLineDash([40, 40]);
     const laneStep = 512 / 4;
@@ -114,8 +114,8 @@ export class RaceEngine {
   }
   createCityScenery() {
     // Generate Skyscrapers flanking the left and right sides
-    const buildingColors = [0x0f172a, 0x1e1b4b, 0x090d16, 0x172554];
-    const neonWindowColors = [0x00f3ff, 0xff0055, 0x00ff66, 0x9d4edd, 0xffb703];
+    const buildingColors = [0x120a0c, 0x1a0b0f, 0x0a0607, 0x190d10];
+    const neonWindowColors = [0xff1733, 0xc4001a, 0xff4d3d, 0xf4eeee, 0x8a0014];
     for (let z = 20; z > -this.trackLength - 50; z -= 25) {
       // Left side buildings
       this.createBuilding(-22 - Math.random() * 8, z, buildingColors, neonWindowColors);
@@ -158,7 +158,7 @@ export class RaceEngine {
   createPortalArch(z) {
     const group = new THREE.Group();
     // Arch pillars & beam
-    const mat = new THREE.MeshBasicMaterial({ color: 0x00f3ff });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff1733 });
     const beamGeo = new THREE.BoxGeometry(24, 0.8, 0.8);
     const beam = new THREE.Mesh(beamGeo, mat);
     beam.position.set(0, 10, z);
@@ -186,7 +186,7 @@ export class RaceEngine {
     p2.position.set(13, 6, finishZ);
     // Glowing FINISH banner text simulation
     const bannerGeo = new THREE.PlaneGeometry(18, 3);
-    const bannerMat = new THREE.MeshBasicMaterial({ color: 0x00ff66, side: THREE.DoubleSide });
+    const bannerMat = new THREE.MeshBasicMaterial({ color: 0xf4eeee, side: THREE.DoubleSide });
     const banner = new THREE.Mesh(bannerGeo, bannerMat);
     banner.position.set(0, 11, finishZ + 0.1);
     // Checkered ground strip
@@ -215,7 +215,7 @@ export class RaceEngine {
     // Cabin / Windshield
     const cabinGeo = new THREE.BoxGeometry(1.6, 0.6, 2.0);
     const cabinMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0d14,
+      color: 0x0a0607,
       metalness: 0.9,
       roughness: 0.1
     });
@@ -223,7 +223,7 @@ export class RaceEngine {
     cabin.position.set(0, 1.1, -0.2);
     carGroup.add(cabin);
     // Headlights (Front cyan/white)
-    const headlightMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff });
+    const headlightMat = new THREE.MeshBasicMaterial({ color: 0xff1733 });
     const hlGeo = new THREE.BoxGeometry(0.4, 0.2, 0.1);
     const hl1 = new THREE.Mesh(hlGeo, headlightMat);
     hl1.position.set(-0.7, 0.6, -2.1);
@@ -231,7 +231,7 @@ export class RaceEngine {
     hl2.position.set(0.7, 0.6, -2.1);
     carGroup.add(hl1, hl2);
     // Taillights (Rear red glow)
-    const tailMat = new THREE.MeshBasicMaterial({ color: 0xff0055 });
+    const tailMat = new THREE.MeshBasicMaterial({ color: 0xc4001a });
     const tlGeo = new THREE.BoxGeometry(0.5, 0.2, 0.1);
     const tl1 = new THREE.Mesh(tlGeo, tailMat);
     tl1.position.set(-0.7, 0.6, 2.1);

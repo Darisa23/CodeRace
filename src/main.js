@@ -18,7 +18,7 @@ class CodeRaceApp {
 
     this.inputName = document.getElementById('player-name');
     this.colorPicker = document.getElementById('color-picker');
-    this.selectedColor = '#00f3ff';
+    this.selectedColor = '#ff1733';
 
     // Buttons
     this.btnCreateRoom = document.getElementById('btn-create-room');
@@ -102,6 +102,10 @@ class CodeRaceApp {
       },
       onBackspace: () => {
         this.soundEngine.playKeyClick('backspace');
+      },
+      onInputFocusChange: (focused) => {
+        const hint = document.getElementById('tap-to-type');
+        if (hint) hint.classList.toggle('hidden', focused || !this.typingEngine.isActive);
       }
     });
 

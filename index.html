@@ -3,10 +3,10 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ScriptRace C++ - Carrera Multijugador de Mecanografía</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+  <title>ScriptRace Python - Carrera Multijugador de Mecanografía</title>
   <meta name="description"
-    content="Compite en tiempo real en una carrera urbana 3D escribiendo fragmentos de código C++.">
+    content="Compite en tiempo real en una carrera urbana 3D escribiendo fragmentos de código Python.">
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -30,7 +30,7 @@
       <section id="lobby-screen" class="screen active">
         <div class="lobby-card glass-panel">
           <div class="logo-container">
-            <span class="logo-badge">C++ EDITION</span>
+            <span class="logo-badge">PYTHON EDITION</span>
             <h1 class="logo-title"><span class="neon-text-blue">SCRIPT</span><span class="neon-text-red">RACE</span>
             </h1>
             <p class="logo-subtitle">Carreras de Mecanografía Multijugador en Tiempo Real</p>
@@ -45,12 +45,12 @@
             <div class="form-group">
               <label>Color de tu Vehículo</label>
               <div class="color-picker" id="color-picker">
-                <button class="color-btn active" data-color="#00f3ff" style="--c: #00f3ff" title="Cian Neón"></button>
-                <button class="color-btn" data-color="#ff0055" style="--c: #ff0055" title="Rojo Carmesí"></button>
-                <button class="color-btn" data-color="#00ff66" style="--c: #00ff66" title="Verde Tóxico"></button>
-                <button class="color-btn" data-color="#9d4edd" style="--c: #9d4edd" title="Violeta Eléctrico"></button>
-                <button class="color-btn" data-color="#ffb703" style="--c: #ffb703" title="Dorado Solar"></button>
-                <button class="color-btn" data-color="#ff6b00" style="--c: #ff6b00" title="Naranja Plasma"></button>
+                <button class="color-btn active" data-color="#ff1733" style="--c: #ff1733" title="Rojo Neón"></button>
+                <button class="color-btn" data-color="#ff4d3d" style="--c: #ff4d3d" title="Rojo Brasa"></button>
+                <button class="color-btn" data-color="#c4001a" style="--c: #c4001a" title="Rojo Sangre"></button>
+                <button class="color-btn" data-color="#f4eeee" style="--c: #f4eeee" title="Blanco Hueso"></button>
+                <button class="color-btn" data-color="#9a8a8a" style="--c: #9a8a8a" title="Acero"></button>
+                <button class="color-btn" data-color="#ff8a94" style="--c: #ff8a94" title="Rosa Neón"></button>
               </div>
             </div>
           </div>
@@ -130,8 +130,8 @@
         <div class="code-box-wrapper glass-panel">
           <div class="code-box-header">
             <div class="code-title">
-              <span class="tag">C++</span>
-              <span id="code-snippet-title">C++ Functions & Logic</span>
+              <span class="tag">PY</span>
+              <span id="code-snippet-title">Python</span>
             </div>
             <div class="block-indicator">
               BLOQUE <span id="current-block-num" class="highlight">1</span> DE 5
@@ -146,7 +146,7 @@
           </div>
 
           <!-- Code View Area -->
-          <div id="code-display" class="code-display" tabindex="0">
+          <div id="code-display" class="code-display" tabindex="-1">
             <!-- Dynamic lines rendered by TypingEngine -->
           </div>
 
@@ -155,6 +155,9 @@
               máximo!</span>
           </div>
         </div>
+
+        <!-- Aviso táctil: aparece solo en móvil cuando el teclado virtual no está activo -->
+        <div id="tap-to-type" class="tap-to-type hidden">⌨ Toca la pantalla para abrir el teclado</div>
 
         <!-- RACE HUD OVERLAY (SPEEDOMETER & RADAR) -->
         <div class="hud-bottom">

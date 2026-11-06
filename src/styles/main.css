@@ -1,15 +1,15 @@
 :root {
-  --bg-dark: #07090e;
-  --bg-card: rgba(14, 18, 28, 0.85);
-  --border-neon: rgba(0, 243, 255, 0.25);
-  --cyan-neon: #00f3ff;
-  --magenta-neon: #ff0055;
-  --green-neon: #00ff66;
-  --yellow-neon: #ffb703;
-  --purple-neon: #9d4edd;
-  --text-main: #f0f4fc;
-  --text-muted: #64748b;
-  --text-dim-code: #475569;
+  --bg-dark: #050304;
+  --bg-card: rgba(14, 8, 10, 0.88);
+  --border-neon: rgba(255, 23, 51, 0.28);
+  --cyan-neon: #ff1733;      /* acento primario (rojo neón) */
+  --magenta-neon: #c4001a;   /* rojo profundo */
+  --green-neon: #f4eeee;     /* texto de énfasis (hueso, no blanco puro) */
+  --yellow-neon: #ff4d3d;    /* rojo brasa */
+  --purple-neon: #6b0010;
+  --text-main: #f4eeee;
+  --text-muted: #8a7a7a;
+  --text-dim-code: #7d6a6d;
   
   --font-hud: 'Orbitron', sans-serif;
   --font-code: 'Fira Code', monospace;
@@ -21,11 +21,45 @@
   margin: 0;
   padding: 0;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Respuesta táctil inmediata (sin retraso ni zoom por doble toque) */
+button, input, a, .btn, .color-btn {
+  touch-action: manipulation;
+}
+
+/* Campo oculto que captura el teclado virtual en móvil.
+   Debe seguir "visible" para el navegador (no display:none) y usar 16px para evitar el zoom de iOS. */
+#mobile-input {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  resize: none;
+  font-size: 16px;
+  caret-color: transparent;
+  color: transparent;
+  background: transparent;
+  pointer-events: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.tap-to-type {
+  display: none;
 }
 
 body, html {
   width: 100%;
   height: 100%;
+  height: 100dvh;
+  overscroll-behavior: none;
   overflow: hidden;
   background-color: var(--bg-dark);
   color: var(--text-main);
@@ -37,6 +71,7 @@ body, html {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
 }
 
 /* 3D WebGL Canvas */
@@ -89,18 +124,18 @@ body, html {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-neon);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
-              inset 0 0 15px rgba(0, 243, 255, 0.05);
+              inset 0 0 15px rgba(255, 23, 51, 0.05);
   border-radius: 16px;
 }
 
 /* Neon Text Helpers */
 .neon-text-blue {
-  color: var(--cyan-neon);
-  text-shadow: 0 0 12px rgba(0, 243, 255, 0.6);
+  color: var(--text-main);
+  text-shadow: 0 0 12px rgba(244, 238, 238, 0.35);
 }
 .neon-text-red {
   color: var(--magenta-neon);
-  text-shadow: 0 0 12px rgba(255, 0, 85, 0.6);
+  text-shadow: 0 0 12px rgba(255, 23, 51, 0.6);
 }
 .neon-cyan { color: var(--cyan-neon); }
 .neon-green { color: var(--green-neon); }
@@ -131,10 +166,10 @@ body, html {
   font-size: 0.75rem;
   letter-spacing: 3px;
   color: var(--cyan-neon);
-  background: rgba(0, 243, 255, 0.1);
+  background: rgba(255, 23, 51, 0.1);
   padding: 4px 12px;
   border-radius: 20px;
-  border: 1px solid rgba(0, 243, 255, 0.3);
+  border: 1px solid rgba(255, 23, 51, 0.3);
   text-transform: uppercase;
 }
 
@@ -169,14 +204,14 @@ body, html {
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 1px;
-  color: #94a3b8;
+  color: #b3a4a4;
   text-transform: uppercase;
 }
 
 .form-group input[type="text"] {
   width: 100%;
   padding: 0.85rem 1.2rem;
-  background: rgba(10, 14, 23, 0.9);
+  background: rgba(10, 6, 8, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 10px;
   color: #fff;
@@ -188,7 +223,7 @@ body, html {
 
 .form-group input[type="text"]:focus {
   border-color: var(--cyan-neon);
-  box-shadow: 0 0 15px rgba(0, 243, 255, 0.3);
+  box-shadow: 0 0 15px rgba(255, 23, 51, 0.3);
 }
 
 .color-picker {
@@ -234,13 +269,13 @@ body, html {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #00f3ff, #0066ff);
+  background: linear-gradient(135deg, #ff1733, #a30018);
   color: #000;
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 243, 255, 0.4);
+  box-shadow: 0 8px 25px rgba(255, 23, 51, 0.4);
 }
 
 .btn-secondary {
@@ -255,16 +290,16 @@ body, html {
 }
 
 .btn-accent {
-  background: linear-gradient(135deg, #ff0055, #9d4edd);
+  background: linear-gradient(135deg, #c4001a, #6b0010);
   color: #fff;
 }
 
 .btn-accent:hover {
-  box-shadow: 0 8px 25px rgba(255, 0, 85, 0.4);
+  box-shadow: 0 8px 25px rgba(255, 23, 51, 0.4);
 }
 
 .btn-glow {
-  box-shadow: 0 0 20px rgba(0, 243, 255, 0.3);
+  box-shadow: 0 0 20px rgba(255, 23, 51, 0.3);
 }
 
 .btn-large {
@@ -274,20 +309,20 @@ body, html {
 }
 
 .btn-success {
-  background: linear-gradient(135deg, #00ff66, #00b347);
+  background: linear-gradient(135deg, #f4eeee, #b9aeae);
   color: #000;
 }
 
 .btn-danger-outline {
   background: transparent;
-  border: 1px solid rgba(255, 0, 85, 0.4);
-  color: #ff0055;
+  border: 1px solid rgba(255, 23, 51, 0.4);
+  color: #ff1733;
   padding: 0.75rem 1.2rem;
   font-size: 0.9rem;
 }
 
 .btn-danger-outline:hover {
-  background: rgba(255, 0, 85, 0.15);
+  background: rgba(255, 23, 51, 0.15);
 }
 
 .btn-text {
@@ -323,7 +358,7 @@ body, html {
 .input-with-button input {
   flex: 1;
   padding: 0.85rem 1.2rem;
-  background: rgba(10, 14, 23, 0.9);
+  background: rgba(10, 6, 8, 0.9);
   border: 1px solid var(--border-neon);
   border-radius: 10px;
   color: #fff;
@@ -365,7 +400,7 @@ body, html {
   font-weight: 900;
   color: var(--cyan-neon);
   letter-spacing: 3px;
-  background: rgba(0, 243, 255, 0.12);
+  background: rgba(255, 23, 51, 0.12);
   padding: 4px 10px;
   border-radius: 6px;
   border: 1px dashed var(--cyan-neon);
@@ -399,7 +434,7 @@ body, html {
 
 .players-list-container h3 {
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: #b3a4a4;
   margin-bottom: 0.6rem;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -446,7 +481,7 @@ body, html {
 .host-tag {
   font-size: 0.7rem;
   font-family: var(--font-hud);
-  background: rgba(255, 183, 3, 0.2);
+  background: rgba(255, 77, 61, 0.2);
   color: var(--yellow-neon);
   padding: 2px 6px;
   border-radius: 4px;
@@ -464,7 +499,7 @@ body, html {
   position: absolute;
   inset: 0;
   z-index: 100;
-  background: rgba(7, 9, 14, 0.85);
+  background: rgba(6, 4, 5, 0.85);
   backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
@@ -532,7 +567,7 @@ body, html {
 }
 
 .code-title .tag {
-  background: #0059b3;
+  background: #a30018;
   color: #fff;
   font-family: var(--font-hud);
   font-size: 0.7rem;
@@ -580,7 +615,7 @@ body, html {
   font-family: var(--font-code);
   font-size: 1.25rem;
   line-height: 1.7;
-  background: rgba(5, 7, 12, 0.92);
+  background: rgba(5, 3, 4, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   padding: 1.25rem 1.5rem;
@@ -589,6 +624,7 @@ body, html {
   max-height: 220px;
   overflow-y: auto;
   outline: none;
+  position: relative; /* offsetTop del cursor se calcula respecto a este contenedor */
 }
 
 /* Code Character Coloring */
@@ -597,8 +633,8 @@ body, html {
 }
 
 .char-correct {
-  color: #39ff14;
-  text-shadow: 0 0 8px rgba(57, 255, 20, 0.5);
+  color: #f4eeee;
+  text-shadow: 0 0 8px rgba(244, 238, 238, 0.5);
   font-weight: 600;
 }
 
@@ -660,7 +696,7 @@ body, html {
   font-weight: 900;
   line-height: 1;
   color: var(--cyan-neon);
-  text-shadow: 0 0 15px rgba(0, 243, 255, 0.5);
+  text-shadow: 0 0 15px rgba(255, 23, 51, 0.5);
 }
 
 .speed-unit {
@@ -764,7 +800,7 @@ body, html {
   font-family: var(--font-hud);
   font-size: 2.2rem;
   color: var(--cyan-neon);
-  text-shadow: 0 0 20px rgba(0, 243, 255, 0.6);
+  text-shadow: 0 0 20px rgba(255, 23, 51, 0.6);
 }
 
 .winner-text {
@@ -798,9 +834,9 @@ body, html {
   width: 30px;
 }
 
-.rank-1 { color: #ffd700; }
-.rank-2 { color: #c0c0c0; }
-.rank-3 { color: #cd7f32; }
+.rank-1 { color: #ff1733; }
+.rank-2 { color: #f4eeee; }
+.rank-3 { color: #9a8a8a; }
 
 .leader-name {
   flex: 1;
@@ -864,7 +900,7 @@ body, html {
 
 .audio-toggle-btn:hover {
   transform: scale(1.1);
-  background: rgba(0, 243, 255, 0.2);
+  background: rgba(255, 23, 51, 0.2);
 }
 
 /* Utility Hidden & Animations */
@@ -879,10 +915,69 @@ body, html {
 
 /* Responsive Tweaks */
 @media (max-width: 768px) {
-  .lobby-card { padding: 1.5rem; }
+  .lobby-card { padding: 1.5rem; max-height: 100%; overflow-y: auto; }
   .logo-title { font-size: 2.2rem; }
   .speedometer-panel { gap: 1rem; padding: 0.8rem; }
   .speed-value { font-size: 2rem; }
   .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
   .code-display { font-size: 1rem; max-height: 180px; }
+}
+
+/* --- MÓVIL / TÁCTIL: el teclado virtual ocupa ~50% de la pantalla, así que el HUD se compacta --- */
+@media (max-width: 768px), (pointer: coarse) {
+  .screen { padding: 0.75rem; }
+  #race-screen { padding: 0.5rem; gap: 0.5rem; }
+
+  .code-box-wrapper { padding: 0.6rem 0.75rem; }
+  .code-box-header { padding-bottom: 0.4rem; margin-bottom: 0.4rem; }
+  .code-title { font-size: 0.75rem; min-width: 0; }
+  .code-title #code-snippet-title {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 38vw;
+  }
+  .block-indicator { font-size: 0.7rem; gap: 0.4rem; }
+  .code-display {
+    font-size: 0.95rem;
+    line-height: 1.55;
+    padding: 0.6rem 0.75rem;
+    max-height: 26dvh;
+  }
+  .typing-tip { display: none; }
+
+  .tap-to-type {
+    display: block;
+    align-self: center;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--cyan-neon);
+    border-radius: 999px;
+    background: rgba(6, 4, 5, 0.9);
+    color: var(--text-main);
+    font-size: 0.8rem;
+    text-align: center;
+    box-shadow: 0 0 14px rgba(255, 23, 51, 0.5);
+    animation: tapPulse 1.2s ease-in-out infinite;
+  }
+  .tap-to-type.hidden { display: none !important; }
+
+  .hud-bottom { gap: 0.5rem; }
+  .speedometer-panel { flex: 1; min-width: 0; padding: 0.5rem 0.75rem; gap: 0.75rem; }
+  .speed-value { font-size: 1.6rem; }
+  .speed-unit { font-size: 0.6rem; }
+  .stats-row { gap: 0.8rem; }
+  .stat-label { font-size: 0.6rem; }
+  .stat-value { font-size: 1rem; }
+  .track-radar { width: 52px; height: 110px; padding: 0.35rem; }
+
+  .countdown-number { font-size: 6rem; }
+  .btn, .color-btn, .btn-icon { min-height: 44px; }
+}
+
+@keyframes tapPulse {
+  50% { box-shadow: 0 0 22px rgba(255, 23, 51, 0.9); }
+}
+
+/* Móvil en horizontal (poca altura con teclado abierto): se oculta lo accesorio */
+@media (max-height: 480px) {
+  .track-radar, .block-dots { display: none; }
+  .code-display { max-height: 30dvh; }
+  .speedometer-panel { padding: 0.35rem 0.6rem; }
 }

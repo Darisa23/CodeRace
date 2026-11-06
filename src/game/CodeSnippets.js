@@ -1,90 +1,86 @@
-// Real C++ Code Snippets divided into sets of 5 blocks per race
-// Versión con bloques cortos (más ágiles para la carrera)
+// Real Python Code Snippets divided into sets of 5 blocks per race
+// Bloques cortos (más ágiles para la carrera). Indentación con 4 espacios.
 
-export const CPP_RACE_SETS = [
+export const PYTHON_RACE_SETS = [
   {
-    id: "set_modern_cpp",
-    title: "C++ Moderno: Lambdas & STL",
+    id: "set_python_basics",
+    title: "Python Esencial: Listas, Lambdas y Comprensiones",
     blocks: [
       {
         id: 1,
-        title: "Vector Initialization",
-        code: `std::vector<int> scores = {95, 82, 100, 74, 91};`
+        title: "Lista de puntajes",
+        code: `scores = [95, 82, 100, 74, 91]`
       },
       {
         id: 2,
-        title: "std::sort con Lambda",
-        code: `std::sort(scores.begin(), scores.end(), [](int a, int b) {
-    return a > b;
-});`
+        title: "sorted con Lambda",
+        code: `ranking = sorted(scores, key=lambda s: s, reverse=True)
+print(ranking[:3])`
       },
       {
         id: 3,
-        title: "std::unique_ptr",
-        code: `auto engine = std::make_unique<CarEngine>();
-engine->rev();`
+        title: "List Comprehension",
+        code: `fast = [s for s in scores if s > 90]
+print(len(fast))`
       },
       {
         id: 4,
-        title: "Función Template",
-        code: `template <typename T>
-T getMax(T a, T b) {
-    return (a > b) ? a : b;
-}`
+        title: "Función con tipos",
+        code: `def get_max(a: int, b: int) -> int:
+    return a if a > b else b`
       },
       {
         id: 5,
-        title: "Struct básico",
-        code: `struct Racer {
-    std::string name;
-    int wpm;
-};`
+        title: "Dataclass",
+        code: `@dataclass
+class Racer:
+    name: str
+    wpm: int`
       }
     ]
   },
   {
-    id: "set_oop_cpp",
-    title: "C++ Orientado a Objetos: Clases y Herencia",
+    id: "set_python_oop",
+    title: "Python Orientado a Objetos: Clases y Herencia",
     blocks: [
       {
         id: 1,
         title: "Clase Vehicle",
-        code: `class Vehicle {
-protected:
-    int speed;
-};`
+        code: `class Vehicle:
+    def __init__(self, speed):
+        self.speed = speed`
       },
       {
         id: 2,
         title: "Herencia",
-        code: `class RaceCar : public Vehicle {
-    bool nitroActive;
-};`
+        code: `class RaceCar(Vehicle):
+    nitro_active = False`
       },
       {
         id: 3,
         title: "Manejo de Excepciones",
-        code: `try {
-    throw std::overflow_error("Velocidad critica!");
-} catch (const std::exception& e) {}`
+        code: `try:
+    raise OverflowError("Velocidad critica!")
+except Exception as e:
+    print(e)`
       },
       {
         id: 4,
         title: "Operador Sobrecargado",
-        code: `Vector2D operator+(const Vector2D& other) const {
-    return {x + other.x, y + other.y};
-}`
+        code: `def __add__(self, other):
+    return Vector2D(self.x + other.x, self.y + other.y)`
       },
       {
         id: 5,
-        title: "Move Semantics",
-        code: `std::string report = std::move(telemetry);`
+        title: "Diccionario y f-string",
+        code: `report = {"racer": "Neo", "wpm": 120}
+print(f"{report['racer']}: {report['wpm']}")`
       }
     ]
   }
 ];
 
 export function getRandomSnippetSet() {
-  const index = Math.floor(Math.random() * CPP_RACE_SETS.length);
-  return CPP_RACE_SETS[index];
+  const index = Math.floor(Math.random() * PYTHON_RACE_SETS.length);
+  return PYTHON_RACE_SETS[index];
 }

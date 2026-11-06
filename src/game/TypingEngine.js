@@ -1,5 +1,8 @@
 // TypingEngine.js - Handles character validation, WPM math, 5-block progression
 
+// Relleno del textarea oculto (permite detectar Backspace en teclados virtuales)
+const INPUT_PAD = '  ';
+
 export class TypingEngine {
   constructor(options = {}) {
     this.containerEl = options.containerEl;
@@ -34,6 +37,75 @@ export class TypingEngine {
 
     // Bind event handlers
     this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.handleInput = this.handleInput.bind(this);
+    this.focusInput = this.focusInput.bind(this);
+    this.handleInputBlur = this.handleInputBlur.bind(this);
+
+    // Entrada móvil: textarea oculto que abre el teclado virtual
+    this.inputEl = null;
+    this.lastInputValue = '';
+    this.onInputFocusChange = options.onInputFocusChange || (() => {});
+  }
+
+  // Crea (una sola vez) el textarea oculto que captura el teclado virtual del móvil.
+  // En Android el keydown llega como 'Unidentified' (keyCode 229), así que se lee el texto con el evento 'input'.
+  ensureInputEl() {
+    if (this.inputEl) return;
+    const el = document.createElement('textarea');
+    el.id = 'mobile-input';
+    el.setAttribute('autocomplete', 'off');
+    el.setAttribute('autocorrect', 'off');
+    el.setAttribute('autocapitalize', 'off');
+    el.setAttribute('spellcheck', 'false');
+    el.setAttribute('enterkeyhint', 'enter');
+    el.setAttribute('aria-label', 'Entrada de código');
+    el.rows = 1;
+    document.body.appendChild(el);
+    this.inputEl = el;
+  }
+
+  focusInput() {
+    if (!this.isActive || !this.inputEl) return;
+    try { this.inputEl.focus({ preventScroll: true }); } catch (_) { this.inputEl.focus(); }
+  }
+
+  handleInputBlur() {
+    this.onInputFocusChange(false);
+  }
+
+  // Procesa cambios del textarea comparando con el valor anterior (robusto ante autocorrección/composición)
+  handleInput(e) {
+    if (!this.isActive) return;
+    const value = this.inputEl.value;
+    const prev = this.lastInputValue;
+
+    let cp = 0;
+    const max = Math.min(prev.length, value.length);
+    while (cp < max && prev[cp] === value[cp]) cp++;
+
+    const removed = prev.length - cp;
+    const added = value.slice(cp);
+    this.lastInputValue = value;
+
+    for (let i = 0; i < removed; i++) this.processTypedKey('Backspace');
+    for (const ch of added) {
+      if (!this.isActive) break;
+      this.processTypedKey(ch === '\n' ? 'Enter' : ch);
+    }
+
+    // Sin composición activa: mantener el relleno entre 2 y 12 caracteres para que
+    // Backspace siempre tenga algo que borrar (si no, el móvil no dispara ningún evento)
+    if (!(e && e.isComposing) && (value.length > 12 || value.length < INPUT_PAD.length)) {
+      this.resetInput();
+    }
+  }
+
+  resetInput() {
+    if (this.inputEl) {
+      this.inputEl.value = INPUT_PAD;
+      try { this.inputEl.setSelectionRange(INPUT_PAD.length, INPUT_PAD.length); } catch (_) {}
+    }
+    this.lastInputValue = INPUT_PAD;
   }
 
   startRace(snippetSet) {
@@ -52,6 +124,15 @@ export class TypingEngine {
     this.loadBlock(0);
     window.addEventListener('keydown', this.handleKeyDown);
 
+    this.ensureInputEl();
+    this.resetInput();
+    this.inputEl.addEventListener('input', this.handleInput);
+    this.inputEl.addEventListener('blur', this.handleInputBlur);
+    this.inputEl.addEventListener('focus', () => this.onInputFocusChange(true));
+    // Cualquier toque durante la carrera devuelve el foco (y el teclado) al campo de entrada
+    document.addEventListener('pointerup', this.focusInput);
+    this.focusInput();
+
     // NUEVO: arranca el contador de límite de tiempo
     this.timeLimitTimer = setTimeout(() => this.handleTimeUp(), this.timeLimitMs);
   }
@@ -59,6 +140,13 @@ export class TypingEngine {
   stop() {
     this.isActive = false;
     window.removeEventListener('keydown', this.handleKeyDown);
+    document.removeEventListener('pointerup', this.focusInput);
+    if (this.inputEl) {
+      this.inputEl.removeEventListener('input', this.handleInput);
+      this.inputEl.removeEventListener('blur', this.handleInputBlur);
+      this.inputEl.blur();
+      this.resetInput();
+    }
 
     // NUEVO: limpiar el timer de límite de tiempo si sigue activo
     if (this.timeLimitTimer) {
@@ -112,9 +200,14 @@ export class TypingEngine {
     }
 
     // Scroll active cursor into view
+    // (scroll manual del contenedor: scrollIntoView movía toda la página al abrir el teclado móvil)
     const activeSpan = this.containerEl.querySelector('.char-cursor');
     if (activeSpan) {
-      activeSpan.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      const c = this.containerEl;
+      const top = activeSpan.offsetTop;
+      const bottom = top + activeSpan.offsetHeight;
+      if (top < c.scrollTop) c.scrollTop = top;
+      else if (bottom > c.scrollTop + c.clientHeight) c.scrollTop = bottom - c.clientHeight;
     }
   }
 
@@ -139,9 +232,18 @@ export class TypingEngine {
     }
 
     e.preventDefault();
+    // El teclado físico ya se procesó: evitar que el textarea acumule texto
+    this.resetInput();
+
+    this.processTypedKey(e.key);
+  }
+
+  // Lógica común (teclado físico y teclado virtual). key: carácter, 'Enter' o 'Backspace'
+  processTypedKey(key) {
+    if (!this.isActive) return;
 
     // Handle Backspace
-    if (e.key === 'Backspace') {
+    if (key === 'Backspace') {
       if (this.hasErrorState) {
         this.hasErrorState = false;
         this.renderCodeDisplay();
@@ -150,10 +252,10 @@ export class TypingEngine {
       return;
     }
 
-    let typedKey = e.key;
+    let typedKey = key;
 
     // Map Enter key to newline
-    if (e.key === 'Enter') {
+    if (key === 'Enter') {
       typedKey = '\n';
     }
 

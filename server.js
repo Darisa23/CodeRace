@@ -40,7 +40,7 @@ async function startServer() {
       const player = {
         socketId: socket.id,
         name: playerName || 'Anfitrión',
-        color: playerColor || '#00f3ff',
+        color: playerColor || '#ff1733',
         lane: 0,
         progress: 0,
         wpm: 0,
@@ -133,7 +133,7 @@ async function startServer() {
       const player = {
         socketId: socket.id,
         name: playerName || 'Piloto',
-        color: playerColor || '#ff0055',
+        color: playerColor || '#c4001a',
         lane: assignedLane,
         progress: 0,
         wpm: 0,
