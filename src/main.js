@@ -84,6 +84,7 @@ class CodeRaceApp {
     // 2. Setup Color Customizer
     this.colorPicker.querySelectorAll('.color-btn').forEach(btn => {
       btn.addEventListener('click', () => {
+        this.soundEngine.playColorPick();
         this.colorPicker.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.selectedColor = btn.dataset.color;
@@ -98,6 +99,9 @@ class CodeRaceApp {
       onRaceCompleted: (finalStats) => this.handleRaceCompleted(finalStats),
       onError: () => {
         this.soundEngine.playErrorSound();
+      },
+      onBackspace: () => {
+        this.soundEngine.playKeyClick('backspace');
       }
     });
 
@@ -110,18 +114,67 @@ class CodeRaceApp {
     });
 
     // 5. Attach Event Handlers
-    this.btnCreateRoom.addEventListener('click', () => this.handleCreateRoom());
+    this.btnCreateRoom.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
+      this.handleCreateRoom();
+    });
     this.btnShowJoin.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
       this.joinForm.classList.remove('hidden');
     });
     this.btnCancelJoin.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
       this.joinForm.classList.add('hidden');
     });
-    this.btnJoinRoom.addEventListener('click', () => this.handleJoinRoom());
-    this.btnStartRace.addEventListener('click', () => this.handleStartRaceClick());
-    this.btnLeaveRoom.addEventListener('click', () => this.handleLeaveRoom());
-    this.btnCopyCode.addEventListener('click', () => this.copyRoomCode());
-    this.btnPlayAgain.addEventListener('click', () => this.showScreen('lobby'));
+    this.btnJoinRoom.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
+      this.handleJoinRoom();
+    });
+    this.btnStartRace.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
+      this.handleStartRaceClick();
+    });
+    this.btnLeaveRoom.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
+      this.handleLeaveRoom();
+    });
+    this.btnPlayAgain.addEventListener('click', () => {
+      this.soundEngine.playUIClick();
+      this.soundEngine.stopEngine();
+      this.soundEngine.setMusicMode('lobby');
+      this.showScreen('lobby');
+    });
+
+    // Lobby inputs typing sounds (Mechanical keyboard SFX when typing player name and room code)
+    const handleLobbyInputKey = (e) => {
+      // Ensure audio context and background soundtrack are active
+      this.soundEngine.init();
+      if (!this.soundEngine.isMusicPlaying) {
+        this.soundEngine.startMusic('lobby');
+      }
+
+      if (e.key === ' ' || e.code === 'Space') {
+        this.soundEngine.playKeyClick('space');
+      } else if (e.key === 'Backspace') {
+        this.soundEngine.playKeyClick('backspace');
+      } else if (e.key === 'Enter') {
+        this.soundEngine.playKeyClick('enter');
+      } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        this.soundEngine.playKeyClick('default');
+      }
+    };
+
+    if (this.inputName) {
+      this.inputName.addEventListener('keydown', handleLobbyInputKey);
+    }
+    if (this.roomCodeInput) {
+      this.roomCodeInput.addEventListener('keydown', handleLobbyInputKey);
+    }
+
+    // UI hover micro-sounds for all interactive buttons
+    document.querySelectorAll('.btn, .color-btn, .btn-icon').forEach(btn => {
+      btn.addEventListener('mouseenter', () => this.soundEngine.playUIHover());
+    });
 
     this.btnToggleAudio.addEventListener('click', () => {
       const muted = this.soundEngine.toggleMute();
@@ -129,8 +182,15 @@ class CodeRaceApp {
       document.getElementById('icon-sound-off').classList.toggle('hidden', !muted);
     });
 
-    // Ensure audio starts on first click anywhere
-    document.addEventListener('click', () => this.soundEngine.init(), { once: true });
+    // Ensure audio starts on first click or keydown anywhere
+    const startAudioOnFirstInteraction = () => {
+      this.soundEngine.init();
+      if (!this.soundEngine.isMusicPlaying) {
+        this.soundEngine.startMusic('lobby');
+      }
+    };
+    document.addEventListener('click', startAudioOnFirstInteraction, { once: true });
+    document.addEventListener('keydown', startAudioOnFirstInteraction, { once: true });
   }
 
   showScreen(screenName) {
@@ -198,6 +258,7 @@ class CodeRaceApp {
   }
 
   copyRoomCode() {
+    this.soundEngine.playCodeCopied();
     const code = this.displayRoomCode.textContent;
     navigator.clipboard.writeText(code);
     const originalText = this.btnCopyCode.innerHTML;
@@ -206,6 +267,11 @@ class CodeRaceApp {
   }
 
   updateLobbyPlayersUI(players) {
+    if (this.prevPlayerCount !== undefined && players.length > this.prevPlayerCount) {
+      this.soundEngine.playPlayerJoined();
+    }
+    this.prevPlayerCount = players.length;
+
     this.playersListEl.innerHTML = '';
     this.playerCountEl.textContent = players.length;
 
@@ -240,16 +306,16 @@ class CodeRaceApp {
     this.countdownOverlay.classList.remove('hidden');
     let count = 3;
     this.countdownNumber.textContent = count;
-    this.soundEngine.playKeyClick();
+    this.soundEngine.playCountdownBeep(count);
 
     const interval = setInterval(() => {
       count--;
       if (count > 0) {
         this.countdownNumber.textContent = count;
-        this.soundEngine.playKeyClick();
+        this.soundEngine.playCountdownBeep(count);
       } else if (count === 0) {
         this.countdownNumber.textContent = '¡YA!';
-        this.soundEngine.playVictorySound();
+        this.soundEngine.playRaceStartGo();
       } else {
         clearInterval(interval);
         this.countdownOverlay.classList.add('hidden');
@@ -261,6 +327,7 @@ class CodeRaceApp {
   startRaceGameplay() {
     this.showScreen('race');
     this.soundEngine.startEngine();
+    this.soundEngine.setMusicMode('race');
 
     // 1. Initialize 3D Cars for all players in room
     const playerList = Array.from(this.multiplayerEngine.players.values());
@@ -307,7 +374,7 @@ class CodeRaceApp {
   }
 
   handleCharacterTyped(stats) {
-    this.soundEngine.playKeyClick();
+    this.soundEngine.playKeyClick(stats.keyType);
     this.hudWpmEl.textContent = stats.wpm;
     this.hudAccuracyEl.textContent = `${stats.accuracy}%`;
 
@@ -316,6 +383,11 @@ class CodeRaceApp {
     const speedKmH = Math.round(effectiveWpm * 1.6);
     this.hudSpeedEl.textContent = speedKmH;
     this.soundEngine.updateEngineSpeed(effectiveWpm);
+
+    // Trigger turbo sound when accelerating in high speed zone
+    if (effectiveWpm >= 75) {
+      this.soundEngine.playTurboSound();
+    }
 
     // Update 3D car & multiplayer state
     const progressPercent = stats.totalProgressPercent;
@@ -328,7 +400,7 @@ class CodeRaceApp {
   }
 
   handleBlockCompleted(blockIndex, nextBlock) {
-    this.soundEngine.playBlockCompleteSound();
+    this.soundEngine.playBlockCompleteSound(blockIndex);
     this.currentBlockNumEl.textContent = Math.min(5, nextBlock + 1);
     
     // Update block indicators dots
@@ -345,6 +417,7 @@ class CodeRaceApp {
   handleRaceCompleted(finalStats) {
     this.soundEngine.playVictorySound();
     this.soundEngine.stopEngine();
+    this.soundEngine.setMusicMode('results');
     clearInterval(this.timerInterval);
 
     const totalTimeMs = finalStats.totalTimeMs;
@@ -423,6 +496,8 @@ class CodeRaceApp {
   }
 
   handleLeaveRoom() {
+    this.soundEngine.stopEngine();
+    this.soundEngine.setMusicMode('lobby');
     this.multiplayerEngine.leaveRoom();
     this.roomWaiting.classList.add('hidden');
     this.btnStartRace.classList.add('hidden');

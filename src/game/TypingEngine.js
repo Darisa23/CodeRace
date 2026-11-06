@@ -8,6 +8,7 @@ export class TypingEngine {
     this.onRaceCompleted = options.onRaceCompleted || (() => {});
     this.onError = options.onError || (() => {});
     this.onTimeUp = options.onTimeUp || (() => {}); // NUEVO: callback cuando se acaba el tiempo límite
+    this.onBackspace = options.onBackspace || (() => {});
 
     this.snippetSet = null;
     this.currentBlockIndex = 0; // 0 to 4
@@ -144,6 +145,7 @@ export class TypingEngine {
       if (this.hasErrorState) {
         this.hasErrorState = false;
         this.renderCodeDisplay();
+        this.onBackspace();
       }
       return;
     }
@@ -178,12 +180,15 @@ export class TypingEngine {
       this.updateStats();
       this.renderCodeDisplay();
 
+      const keyType = typedKey === ' ' ? 'space' : (typedKey === '\n' ? 'enter' : 'default');
+
       this.onCharacterTyped({
         wpm: this.currentWPM,
         accuracy: this.accuracy,
         cursorIndex: this.cursorIndex,
         blockProgress: this.cursorIndex / this.codeText.length,
-        totalProgressPercent: this.getTotalRaceProgressPercent()
+        totalProgressPercent: this.getTotalRaceProgressPercent(),
+        keyType
       });
 
       // Check if current block is finished
