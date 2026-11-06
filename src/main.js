@@ -80,6 +80,9 @@ class CodeRaceApp {
   init() {
     // 1. Initialize 3D Canvas
     this.raceEngine.init();
+    this.raceEngine.loadModels(); // usa public/models/car.glb si existe (Blender)
+    this.raceEngine.onPassBy = (evt) => this.soundEngine.playPassBy(evt);
+    this.raceEngine.onFinishCross = () => this.soundEngine.playFinishLine();
 
     // 2. Setup Color Customizer
     this.colorPicker.querySelectorAll('.color-btn').forEach(btn => {
@@ -103,6 +106,7 @@ class CodeRaceApp {
       onBackspace: () => {
         this.soundEngine.playKeyClick('backspace');
       },
+      onNitroChange: (state) => this.handleNitroChange(state),
       onInputFocusChange: (focused) => {
         const hint = document.getElementById('tap-to-type');
         if (hint) hint.classList.toggle('hidden', focused || !this.typingEngine.isActive);
@@ -146,6 +150,9 @@ class CodeRaceApp {
       this.soundEngine.playUIClick();
       this.soundEngine.stopEngine();
       this.soundEngine.setMusicMode('lobby');
+      this.raceEngine.clearCars();
+      this.raceEngine.stop();
+      this.setNitroHud(0, false);
       this.showScreen('lobby');
     });
 
@@ -340,6 +347,8 @@ class CodeRaceApp {
     this.radarTrackEl.querySelectorAll('.radar-player-dot').forEach(el => el.remove());
     this.radarDots.clear();
 
+    this.raceEngine.clearCars();
+    this.setNitroHud(0, false);
     playerList.forEach((p, idx) => {
       const isLocal = p.peerId === this.multiplayerEngine.myPeerId;
       const lane = p.lane !== undefined ? p.lane : idx;
@@ -373,7 +382,7 @@ class CodeRaceApp {
         this.soundEngine.updateEngineSpeed(effectiveWpm);
         const localId = this.multiplayerEngine.myPeerId;
         if (localId) {
-          this.raceEngine.updatePlayerProgress(localId, this.typingEngine.getTotalRaceProgressPercent(), effectiveWpm);
+          this.raceEngine.updatePlayerProgress(localId, this.typingEngine.getTotalRaceProgressPercent(), effectiveWpm, this.typingEngine.nitroActive);
         }
       }
     }, 200);
@@ -398,17 +407,39 @@ class CodeRaceApp {
     // Update 3D car & multiplayer state
     const progressPercent = stats.totalProgressPercent;
     const localId = this.multiplayerEngine.myPeerId;
-    this.raceEngine.updatePlayerProgress(localId, progressPercent, stats.wpm);
+    this.raceEngine.updatePlayerProgress(localId, progressPercent, stats.wpm, stats.nitroActive);
     this.updateRadarDot(localId, progressPercent);
+    this.setNitroHud(stats.nitroCharge, stats.nitroActive);
 
     // Broadcast to peers
-    this.multiplayerEngine.sendProgress(progressPercent, stats.wpm, this.typingEngine.currentBlockIndex + 1);
+    this.multiplayerEngine.sendProgress(progressPercent, stats.wpm, this.typingEngine.currentBlockIndex + 1, !!stats.nitroActive);
+  }
+
+  // ---- NITRO ----
+  handleNitroChange({ active, charge }) {
+    this.setNitroHud(charge, active);
+    const localId = this.multiplayerEngine && this.multiplayerEngine.myPeerId;
+    if (localId) this.raceEngine.setNitro(localId, active);
+    this.soundEngine.setNitro(active);
+    if (active && navigator.vibrate) navigator.vibrate([40, 30, 80]);
+  }
+
+  setNitroHud(charge, active) {
+    const fill = document.getElementById('nitro-fill');
+    const wrap = document.getElementById('nitro-meter');
+    const raceScreen = document.getElementById('race-screen');
+    if (fill) fill.style.width = `${Math.round((active ? 1 : charge) * 100)}%`;
+    if (wrap) {
+      wrap.classList.toggle('active', !!active);
+      wrap.classList.toggle('ready', !active && charge >= 0.8);
+    }
+    if (raceScreen) raceScreen.classList.toggle('nitro-on', !!active);
   }
 
   handleBlockCompleted(blockIndex, nextBlock) {
     this.soundEngine.playBlockCompleteSound(blockIndex);
     this.currentBlockNumEl.textContent = Math.min(5, nextBlock + 1);
-    
+
     // Update block indicators dots
     const dots = document.querySelectorAll('.block-dots .dot');
     if (dots[blockIndex]) {
@@ -440,7 +471,7 @@ class CodeRaceApp {
   }
 
   onRemotePlayerProgress(data) {
-    this.raceEngine.updatePlayerProgress(data.peerId, data.progress, data.wpm);
+    this.raceEngine.updatePlayerProgress(data.peerId, data.progress, data.wpm, data.nitro);
     this.updateRadarDot(data.peerId, data.progress);
   }
 
@@ -470,7 +501,7 @@ class CodeRaceApp {
     this.resWpmEl.textContent = localStats.wpm;
     this.resPeakWpmEl.textContent = localStats.peakWPM;
     this.resAccuracyEl.textContent = `${localStats.accuracy}%`;
-    
+
     const elapsedSec = Math.floor((localStats.totalTimeMs) / 1000);
     const mins = Math.floor(elapsedSec / 60).toString().padStart(2, '0');
     const secs = (elapsedSec % 60).toString().padStart(2, '0');

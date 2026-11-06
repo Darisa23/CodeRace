@@ -10,7 +10,7 @@
   --text-main: #f4eeee;
   --text-muted: #8a7a7a;
   --text-dim-code: #7d6a6d;
-  
+
   --font-hud: 'Orbitron', sans-serif;
   --font-code: 'Fira Code', monospace;
   --font-ui: 'Inter', sans-serif;
@@ -980,4 +980,63 @@ body, html {
   .track-radar, .block-dots { display: none; }
   .code-display { max-height: 30dvh; }
   .speedometer-panel { padding: 0.35rem 0.6rem; }
+}
+
+/* --- NITRO --- */
+.nitro-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+.nitro-label {
+  font-family: var(--font-hud);
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+}
+.nitro-track {
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 23, 51, 0.35);
+  overflow: hidden;
+}
+.nitro-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #6b0010, #ff1733 70%, #ff4d3d);
+  box-shadow: 0 0 10px rgba(255, 23, 51, 0.7);
+  transition: width 0.12s linear;
+}
+.nitro-meter.ready .nitro-label { color: var(--cyan-neon); }
+.nitro-meter.ready .nitro-fill { animation: nitroReady 0.5s ease-in-out infinite alternate; }
+.nitro-meter.active .nitro-label { color: #fff; text-shadow: 0 0 10px var(--cyan-neon); }
+.nitro-meter.active .nitro-fill {
+  background: linear-gradient(90deg, #ff1733, #ffd9d9);
+  animation: nitroBurn 3.5s linear forwards;
+}
+@keyframes nitroReady { from { filter: brightness(1); } to { filter: brightness(1.6); } }
+@keyframes nitroBurn { from { width: 100%; } to { width: 0%; } }
+
+/* Viñeta roja y borde pulsante mientras dura el nitro */
+#race-screen::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 23, 51, 0.38) 100%);
+  z-index: -1;
+}
+#race-screen.nitro-on::after {
+  opacity: 1;
+  animation: nitroPulse 0.35s ease-in-out infinite alternate;
+}
+@keyframes nitroPulse { from { filter: brightness(0.9); } to { filter: brightness(1.4); } }
+
+@media (max-width: 768px), (pointer: coarse) {
+  .nitro-meter { min-width: 70px; }
+  .nitro-track { height: 8px; }
 }

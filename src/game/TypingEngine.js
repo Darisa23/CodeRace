@@ -3,6 +3,10 @@
 // Relleno del textarea oculto (permite detectar Backspace en teclados virtuales)
 const INPUT_PAD = '  ';
 
+// NITRO: racha de teclas correctas sin error que carga la barra; al llenarse se activa unos segundos
+const NITRO_STREAK = 30;
+const NITRO_DURATION_MS = 3500;
+
 export class TypingEngine {
   constructor(options = {}) {
     this.containerEl = options.containerEl;
@@ -12,6 +16,7 @@ export class TypingEngine {
     this.onError = options.onError || (() => {});
     this.onTimeUp = options.onTimeUp || (() => {}); // NUEVO: callback cuando se acaba el tiempo límite
     this.onBackspace = options.onBackspace || (() => {});
+    this.onNitroChange = options.onNitroChange || (() => {}); // { active, charge }
 
     this.snippetSet = null;
     this.currentBlockIndex = 0; // 0 to 4
@@ -30,6 +35,11 @@ export class TypingEngine {
     this.isActive = false;
 
     this.hasErrorState = false;
+
+    // Nitro
+    this.streak = 0;
+    this.nitroActive = false;
+    this.nitroTimer = null;
 
     // NUEVO: límite de tiempo de la carrera (por defecto 5 minutos)
     this.timeLimitMs = options.timeLimitMs || 5 * 60 * 1000;
@@ -120,6 +130,8 @@ export class TypingEngine {
     this.peakWPM = 0;
     this.accuracy = 100;
     this.isActive = true;
+    this.streak = 0;
+    this.setNitro(false);
 
     this.loadBlock(0);
     window.addEventListener('keydown', this.handleKeyDown);
@@ -150,6 +162,8 @@ export class TypingEngine {
       this.resetInput();
     }
 
+    this.setNitro(false);
+
     // NUEVO: limpiar el timer de límite de tiempo si sigue activo
     if (this.timeLimitTimer) {
       clearTimeout(this.timeLimitTimer);
@@ -159,7 +173,7 @@ export class TypingEngine {
 
   loadBlock(blockIndex) {
     if (!this.snippetSet || blockIndex >= this.snippetSet.blocks.length) return;
-    
+
     this.currentBlockIndex = blockIndex;
     this.codeText = this.snippetSet.blocks[blockIndex].code;
     this.cursorIndex = 0;
@@ -172,12 +186,12 @@ export class TypingEngine {
     if (!this.containerEl) return;
 
     this.containerEl.innerHTML = '';
-    
+
     // Create span for each character with status class
     for (let i = 0; i < this.codeText.length; i++) {
       const char = this.codeText[i];
       const charSpan = document.createElement('span');
-      
+
       if (char === '\n') {
         charSpan.innerHTML = '↵\n';
       } else if (char === ' ') {
@@ -272,13 +286,22 @@ export class TypingEngine {
       this.totalCorrectChars++;
       this.cursorIndex++;
       this.hasErrorState = false;
+      this.autoIndent();
 
-      // Smart auto-indent: if next characters are whitespace after newline, auto-advance
-      while (this.cursorIndex < this.codeText.length && 
-             this.codeText[this.cursorIndex - 1] === '\n' && 
-             this.codeText[this.cursorIndex] === ' ') {
+      // NITRO activo: cada tecla correcta avanza un caracter extra (nunca salta un Enter)
+      if (this.nitroActive &&
+          this.cursorIndex < this.codeText.length &&
+          this.codeText[this.cursorIndex] !== '\n') {
         this.cursorIndex++;
         this.totalCorrectChars++;
+        this.autoIndent();
+      }
+
+      // Racha para cargar el nitro
+      this.streak++;
+      if (!this.nitroActive && this.streak >= NITRO_STREAK) {
+        this.streak = 0;
+        this.setNitro(true);
       }
 
       this.updateStats();
@@ -292,6 +315,8 @@ export class TypingEngine {
         cursorIndex: this.cursorIndex,
         blockProgress: this.cursorIndex / this.codeText.length,
         totalProgressPercent: this.getTotalRaceProgressPercent(),
+        nitroActive: this.nitroActive,
+        nitroCharge: this.getNitroCharge(),
         keyType
       });
 
@@ -320,9 +345,45 @@ export class TypingEngine {
       // Error keystroke!
       this.hasErrorState = true;
       this.errorCount++;
+      if (this.streak > 0) {
+        this.streak = 0;
+        this.onNitroChange({ active: this.nitroActive, charge: 0 });
+      }
       this.updateStats();
       this.renderCodeDisplay();
       this.onError();
+    }
+  }
+
+  // Smart auto-indent: tras un salto de linea, los espacios siguientes se avanzan solos
+  autoIndent() {
+    while (this.cursorIndex < this.codeText.length &&
+           this.codeText[this.cursorIndex - 1] === '\n' &&
+           this.codeText[this.cursorIndex] === ' ') {
+      this.cursorIndex++;
+      this.totalCorrectChars++;
+    }
+  }
+
+  getNitroCharge() {
+    return this.nitroActive ? 1 : Math.min(1, this.streak / NITRO_STREAK);
+  }
+
+  setNitro(active) {
+    if (this.nitroTimer) {
+      clearTimeout(this.nitroTimer);
+      this.nitroTimer = null;
+    }
+    const changed = this.nitroActive !== active;
+    this.nitroActive = active;
+    if (active) {
+      this.nitroTimer = setTimeout(() => {
+        this.nitroTimer = null;
+        this.setNitro(false);
+      }, NITRO_DURATION_MS);
+    }
+    if (changed) {
+      this.onNitroChange({ active, charge: active ? 1 : 0, durationMs: NITRO_DURATION_MS });
     }
   }
 
@@ -345,7 +406,7 @@ export class TypingEngine {
   getEffectiveSpeed() {
     if (!this.isActive || this.hasErrorState) return 0;
     const timeSinceLastKey = Date.now() - (this.lastTypedTime || Date.now());
-    
+
     // Stop car if idle for > 1.5 seconds or in error state
     if (timeSinceLastKey > 1500) {
       return 0;
@@ -354,7 +415,7 @@ export class TypingEngine {
       const factor = 1 - ((timeSinceLastKey - 600) / 900);
       return Math.max(0, Math.round(this.currentWPM * factor));
     }
-    
+
     return this.currentWPM;
   }
 

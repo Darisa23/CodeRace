@@ -69,7 +69,8 @@ export class MultiplayerEngine {
         peerId: data.socketId,
         progress: data.progress,
         wpm: data.wpm,
-        currentBlock: data.currentBlock
+        currentBlock: data.currentBlock,
+        nitro: !!data.nitro
       });
     });
 
@@ -155,7 +156,7 @@ export class MultiplayerEngine {
   }
 
   // Send real-time typing progress
-  sendProgress(progressPercent, wpm, currentBlock) {
+  sendProgress(progressPercent, wpm, currentBlock, nitro = false) {
     if (!this.socket) return;
     if (this.localPlayer) {
       this.localPlayer.progress = progressPercent;
@@ -164,7 +165,8 @@ export class MultiplayerEngine {
     this.socket.emit('player_progress', {
       progress: progressPercent,
       wpm,
-      currentBlock
+      currentBlock,
+      nitro
     });
   }
 

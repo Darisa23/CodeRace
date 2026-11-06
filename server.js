@@ -184,7 +184,8 @@ async function startServer() {
         socketId: socket.id,
         progress: data.progress,
         wpm: data.wpm,
-        currentBlock: data.currentBlock
+        currentBlock: data.currentBlock,
+        nitro: !!data.nitro
       });
     });
 

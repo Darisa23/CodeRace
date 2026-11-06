@@ -488,109 +488,220 @@ export class SoundEngine {
   }
 
   // ==========================================
-  // REALISTIC PROCEDURAL RACING ENGINE
+  // REALISTIC PROCEDURAL RACING ENGINE (v2, sintesis en capas)
+  //  - Nucleo: osciladores diente de sierra + sub + armonico -> distorsion -> formantes de escape/admision
+  //  - "Lope" de ralenti, rumble de escape modulado por los disparos, silbido de turbo
+  //  - Viento (sube con la velocidad^2), rodadura del asfalto, chasquidos al soltar, blow-off
+  //  - Capa de NITRO (rugido + chillido) con ignicion y cierre
   // ==========================================
 
-  // Custom periodic wave for realistic 4-stroke combustion pulse
-  createEngineWave() {
-    if (!this.ctx) return null;
-    const n = 16;
-    const real = new Float32Array(n);
-    const imag = new Float32Array(n);
-    real[0] = 0;
-    imag[0] = 0;
-
-    // Harmonically warm cylinder pressure curve (eliminates synthetic harshness)
-    const harmonics = [0, 1.0, 0.72, 0.38, 0.20, 0.10, 0.04, 0.015, 0.005];
-    for (let i = 1; i < harmonics.length; i++) {
-      real[i] = harmonics[i];
-      imag[i] = (i % 2 === 0 ? 0.06 : 0.0) * harmonics[i];
+  makeDistortionCurve(k = 30) {
+    const n = 2048;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      curve[i] = ((3 + k) * x * 20 * (Math.PI / 180)) / (Math.PI + k * Math.abs(x));
     }
-    return this.ctx.createPeriodicWave(real, imag);
+    return curve;
+  }
+
+  // Fuente de ruido en bucle (se registra para detenerla al parar el motor)
+  makeNoiseLoop() {
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+    return src;
   }
 
   startEngine() {
     this.init();
     if (this.engineRunning) return;
 
-    const now = this.ctx.currentTime;
-    this.currentRpm = 950;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    this.currentRpm = 900;
     this.currentSpeed = 0;
     this.targetWpm = 0;
     this.currentGear = 1;
     this.isShifting = false;
     this.throttle = 0;
+    this.prevThrottle = 0;
+    this.boost = 0;
+    this.nitroTarget = 0;
+    this.nitroLevel = 0;
+    this.lastPopTime = 0;
+    this.lastPassTime = 0;
+    this.engineSources = []; // fuentes a detener
 
-    // 1. Custom periodic wave for realistic cylinder combustion pulses
-    const engineWave = this.createEngineWave();
+    const bus = ctx.createGain();
+    bus.gain.setValueAtTime(this.isMuted ? 0 : 1, now);
+    bus.connect(this.masterGain);
+    this.engineBus = bus;
 
-    // 2. Main cylinder firing oscillator
-    this.engineOscCylinder = this.ctx.createOscillator();
-    if (engineWave) {
-      this.engineOscCylinder.setPeriodicWave(engineWave);
-    } else {
-      this.engineOscCylinder.type = 'triangle';
-    }
-    // Idle 950 RPM -> Firing freq = (950 / 60) * 2 = 31.67 Hz
-    this.engineOscCylinder.frequency.setValueAtTime(31.67, now);
+    const osc = (type, freq) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, now);
+      this.engineSources.push(o);
+      return o;
+    };
+    const noise = () => {
+      const n = this.makeNoiseLoop();
+      this.engineSources.push(n);
+      return n;
+    };
 
-    // 3. Camshaft / 4-stroke sub-harmonic oscillator (subtle rhythmic cycle thump)
-    this.engineOscCam = this.ctx.createOscillator();
-    this.engineOscCam.type = 'sine';
-    this.engineOscCam.frequency.setValueAtTime(15.83, now); // Half of firing frequency
+    // ---------- NUCLEO DEL MOTOR ----------
+    // Frecuencia de encendido de un 4 cilindros 4T: rpm/60*2
+    this.eOsc1 = osc('sawtooth', 30);   // fundamental
+    this.eOsc2 = osc('square', 15);     // sub (cigueñal / bloque)
+    this.eOsc3 = osc('sawtooth', 60.2); // segundo armonico algo desafinado => aspereza
 
-    // 4. Exhaust cavity resonator (peaking filter around 125Hz for deep body purr)
-    this.engineExhaustFilter = this.ctx.createBiquadFilter();
-    this.engineExhaustFilter.type = 'peaking';
-    this.engineExhaustFilter.frequency.setValueAtTime(125, now);
-    this.engineExhaustFilter.Q.setValueAtTime(2.0, now);
-    this.engineExhaustFilter.gain.setValueAtTime(4.0, now);
+    const mix = ctx.createGain();
+    mix.gain.setValueAtTime(1, now);
+    const g1 = ctx.createGain(); g1.gain.setValueAtTime(0.55, now);
+    const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.35, now);
+    const g3 = ctx.createGain(); g3.gain.setValueAtTime(0.28, now);
+    this.eOsc1.connect(g1).connect(mix);
+    this.eOsc2.connect(g2).connect(mix);
+    this.eOsc3.connect(g3).connect(mix);
 
-    // 5. Muffler lowpass filter (keeps tone warm, deep and non-fatiguing, 380Hz idle -> 760Hz rev)
-    this.engineMufflerFilter = this.ctx.createBiquadFilter();
-    this.engineMufflerFilter.type = 'lowpass';
-    this.engineMufflerFilter.frequency.setValueAtTime(380, now);
-    this.engineMufflerFilter.Q.setValueAtTime(1.2, now);
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = this.makeDistortionCurve(35);
+    shaper.oversample = '2x';
 
-    // 6. Engine volume gain (soft, comforting, non-intrusive)
-    this.engineGain = this.ctx.createGain();
-    this.engineGain.gain.setValueAtTime(this.isMuted ? 0 : 0.024, now);
+    this.eExhaustPeak = ctx.createBiquadFilter(); // resonancia del escape
+    this.eExhaustPeak.type = 'peaking';
+    this.eExhaustPeak.frequency.setValueAtTime(140, now);
+    this.eExhaustPeak.Q.setValueAtTime(1.6, now);
+    this.eExhaustPeak.gain.setValueAtTime(7, now);
 
-    // Connect audio graph
-    this.engineOscCylinder.connect(this.engineExhaustFilter);
-    this.engineOscCam.connect(this.engineExhaustFilter);
-    this.engineExhaustFilter.connect(this.engineMufflerFilter);
-    this.engineMufflerFilter.connect(this.engineGain);
-    this.engineGain.connect(this.masterGain);
+    this.eIntakePeak = ctx.createBiquadFilter();  // resonancia de la admision
+    this.eIntakePeak.type = 'peaking';
+    this.eIntakePeak.frequency.setValueAtTime(950, now);
+    this.eIntakePeak.Q.setValueAtTime(1.2, now);
+    this.eIntakePeak.gain.setValueAtTime(4, now);
 
-    this.engineOscCylinder.start(now);
-    this.engineOscCam.start(now);
+    this.eLowpass = ctx.createBiquadFilter();
+    this.eLowpass.type = 'lowpass';
+    this.eLowpass.frequency.setValueAtTime(700, now);
+    this.eLowpass.Q.setValueAtTime(0.9, now);
 
-    // 7. Subtle aerodynamic road / air rush (barely perceptible texture)
-    if (this.noiseBuffer) {
-      this.engineAirNoiseSource = this.ctx.createBufferSource();
-      this.engineAirNoiseSource.buffer = this.noiseBuffer;
-      this.engineAirNoiseSource.loop = true;
+    this.eCoreGain = ctx.createGain();
+    this.eCoreGain.gain.setValueAtTime(0.1, now);
 
-      this.engineAirFilter = this.ctx.createBiquadFilter();
-      this.engineAirFilter.type = 'bandpass';
-      this.engineAirFilter.frequency.setValueAtTime(480, now);
-      this.engineAirFilter.Q.setValueAtTime(1.2, now);
+    mix.connect(shaper);
+    shaper.connect(this.eExhaustPeak);
+    this.eExhaustPeak.connect(this.eIntakePeak);
+    this.eIntakePeak.connect(this.eLowpass);
+    this.eLowpass.connect(this.eCoreGain);
+    this.eCoreGain.connect(bus);
 
-      this.engineAirGain = this.ctx.createGain();
-      this.engineAirGain.gain.setValueAtTime(0, now);
+    // "Lope" del ralenti: pequeña modulacion de frecuencia lenta
+    this.eLope = osc('sine', 6.5);
+    this.eLopeGain = ctx.createGain();
+    this.eLopeGain.gain.setValueAtTime(1.6, now);
+    this.eLope.connect(this.eLopeGain);
+    this.eLopeGain.connect(this.eOsc1.frequency);
+    this.eLopeGain.connect(this.eOsc3.frequency);
 
-      this.engineAirNoiseSource.connect(this.engineAirFilter);
-      this.engineAirFilter.connect(this.engineAirGain);
-      this.engineAirGain.connect(this.masterGain);
+    // ---------- RUMBLE DE ESCAPE (ruido grave pulsado por los disparos) ----------
+    const rumbleSrc = noise();
+    const rumbleLP = ctx.createBiquadFilter();
+    rumbleLP.type = 'lowpass';
+    rumbleLP.frequency.setValueAtTime(230, now);
+    this.eRumbleGain = ctx.createGain();
+    this.eRumbleGain.gain.setValueAtTime(0.5, now);
+    this.ePulse = osc('sine', 30);
+    this.ePulseGain = ctx.createGain();
+    this.ePulseGain.gain.setValueAtTime(0.5, now);
+    this.ePulse.connect(this.ePulseGain);
+    this.ePulseGain.connect(this.eRumbleGain.gain);
+    this.eRumbleOut = ctx.createGain();
+    this.eRumbleOut.gain.setValueAtTime(0.16, now);
+    rumbleSrc.connect(rumbleLP);
+    rumbleLP.connect(this.eRumbleGain);
+    this.eRumbleGain.connect(this.eRumbleOut);
+    this.eRumbleOut.connect(bus);
 
-      this.engineAirNoiseSource.start(now);
-    }
+    // ---------- ADMISION (siseo mecanico con el acelerador) ----------
+    const intakeSrc = noise();
+    this.eIntakeBP = ctx.createBiquadFilter();
+    this.eIntakeBP.type = 'bandpass';
+    this.eIntakeBP.frequency.setValueAtTime(1100, now);
+    this.eIntakeBP.Q.setValueAtTime(1.8, now);
+    this.eIntakeGain = ctx.createGain();
+    this.eIntakeGain.gain.setValueAtTime(0, now);
+    intakeSrc.connect(this.eIntakeBP);
+    this.eIntakeBP.connect(this.eIntakeGain);
+    this.eIntakeGain.connect(bus);
 
+    // ---------- TURBO (silbido que sube con la presion) ----------
+    this.eTurbo = osc('sine', 1800);
+    this.eTurbo2 = osc('sine', 3600);
+    this.eTurboGain = ctx.createGain();
+    this.eTurboGain.gain.setValueAtTime(0, now);
+    const t2 = ctx.createGain(); t2.gain.setValueAtTime(0.3, now);
+    this.eTurbo.connect(this.eTurboGain);
+    this.eTurbo2.connect(t2);
+    t2.connect(this.eTurboGain);
+    this.eTurboGain.connect(bus);
+
+    // ---------- VIENTO ----------
+    const windSrc = noise();
+    this.eWindBP = ctx.createBiquadFilter();
+    this.eWindBP.type = 'bandpass';
+    this.eWindBP.frequency.setValueAtTime(800, now);
+    this.eWindBP.Q.setValueAtTime(0.55, now);
+    this.eWindGain = ctx.createGain();
+    this.eWindGain.gain.setValueAtTime(0, now);
+    windSrc.connect(this.eWindBP);
+    this.eWindBP.connect(this.eWindGain);
+    this.eWindGain.connect(bus);
+
+    // ---------- RODADURA / NEUMATICOS ----------
+    const roadSrc = noise();
+    const roadLP = ctx.createBiquadFilter();
+    roadLP.type = 'lowpass';
+    roadLP.frequency.setValueAtTime(520, now);
+    this.eRoadGain = ctx.createGain();
+    this.eRoadGain.gain.setValueAtTime(0, now);
+    roadSrc.connect(roadLP);
+    roadLP.connect(this.eRoadGain);
+    this.eRoadGain.connect(bus);
+
+    // ---------- NITRO (rugido + chillido distorsionado) ----------
+    const nitroSrc = noise();
+    this.eNitroBP = ctx.createBiquadFilter();
+    this.eNitroBP.type = 'bandpass';
+    this.eNitroBP.frequency.setValueAtTime(1500, now);
+    this.eNitroBP.Q.setValueAtTime(0.8, now);
+    this.eNitroNoiseGain = ctx.createGain();
+    this.eNitroNoiseGain.gain.setValueAtTime(0, now);
+    nitroSrc.connect(this.eNitroBP);
+    this.eNitroBP.connect(this.eNitroNoiseGain);
+    this.eNitroNoiseGain.connect(bus);
+
+    this.eNitroOsc = osc('sawtooth', 120);
+    const nShaper = ctx.createWaveShaper();
+    nShaper.curve = this.makeDistortionCurve(60);
+    const nLP = ctx.createBiquadFilter();
+    nLP.type = 'lowpass';
+    nLP.frequency.setValueAtTime(2600, now);
+    this.eNitroOscGain = ctx.createGain();
+    this.eNitroOscGain.gain.setValueAtTime(0, now);
+    this.eNitroOsc.connect(nShaper);
+    nShaper.connect(nLP);
+    nLP.connect(this.eNitroOscGain);
+    this.eNitroOscGain.connect(bus);
+
+    this.engineSources.forEach((s) => {
+      try { s.start(now, s.buffer ? Math.random() * 1.6 : 0); } catch (e) {}
+    });
+    // los osciladores ignoran el 2.o argumento (offset) y arrancan normal
     this.engineRunning = true;
     this.lastLoopTime = performance.now();
 
-    // Start 60fps physics & RPM interpolation loop
     const runLoop = () => {
       if (!this.engineRunning) return;
       this.updateEnginePhysics();
@@ -600,45 +711,30 @@ export class SoundEngine {
   }
 
   updateEnginePhysics() {
-    if (!this.engineRunning || !this.ctx || !this.engineOscCylinder) return;
+    if (!this.engineRunning || !this.ctx || !this.eOsc1) return;
 
     const nowPerf = performance.now();
     const dt = Math.min(0.1, (nowPerf - this.lastLoopTime) / 1000);
     this.lastLoopTime = nowPerf;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
 
-    const targetKmH = Math.max(0, this.targetWpm * 1.6);
+    // El nitro empuja la velocidad percibida
+    this.nitroLevel += (this.nitroTarget - this.nitroLevel) * Math.min(1, dt * 5);
+    const targetKmH = Math.max(0, this.targetWpm * 1.6) * (1 + 0.3 * this.nitroLevel);
 
-    // Smooth speed tracking with vehicle inertia
-    if (targetKmH > this.currentSpeed) {
-      this.currentSpeed += (targetKmH - this.currentSpeed) * Math.min(1, dt * 3.2);
-    } else {
-      this.currentSpeed += (targetKmH - this.currentSpeed) * Math.min(1, dt * 1.8);
-    }
+    // Inercia del vehiculo
+    const accelRate = targetKmH > this.currentSpeed ? 3.2 : 1.8;
+    this.currentSpeed += (targetKmH - this.currentSpeed) * Math.min(1, dt * accelRate);
 
-    // 5-Speed Gearbox Simulation
+    // Caja de 5 marchas
     let targetGear = 1;
-    let minSpd = 0, maxSpd = 30;
-    let minRpm = 950, maxRpm = 4600;
+    let minSpd = 0, maxSpd = 30, minRpm = 950, maxRpm = 4600;
+    if (this.currentSpeed > 130) { targetGear = 5; minSpd = 130; maxSpd = 240; minRpm = 3000; maxRpm = 6200; }
+    else if (this.currentSpeed > 88) { targetGear = 4; minSpd = 88; maxSpd = 140; minRpm = 2700; maxRpm = 5800; }
+    else if (this.currentSpeed > 52) { targetGear = 3; minSpd = 52; maxSpd = 98; minRpm = 2500; maxRpm = 5500; }
+    else if (this.currentSpeed > 24) { targetGear = 2; minSpd = 24; maxSpd = 60; minRpm = 2300; maxRpm = 5200; }
 
-    if (this.currentSpeed > 130) {
-      targetGear = 5;
-      minSpd = 130; maxSpd = 240;
-      minRpm = 3000; maxRpm = 5800;
-    } else if (this.currentSpeed > 88) {
-      targetGear = 4;
-      minSpd = 88; maxSpd = 140;
-      minRpm = 2700; maxRpm = 5400;
-    } else if (this.currentSpeed > 52) {
-      targetGear = 3;
-      minSpd = 52; maxSpd = 98;
-      minRpm = 2500; maxRpm = 5100;
-    } else if (this.currentSpeed > 24) {
-      targetGear = 2;
-      minSpd = 24; maxSpd = 60;
-      minRpm = 2300; maxRpm = 4800;
-    }
-
-    // Handle Gear Shift (natural clutch dip & mechanical shift sound)
     if (targetGear !== this.currentGear && this.currentSpeed > 15) {
       const isUpshift = targetGear > this.currentGear;
       this.currentGear = targetGear;
@@ -647,89 +743,366 @@ export class SoundEngine {
       this.playGearShiftSound(targetGear, isUpshift);
     }
 
-    const gearRatio = Math.max(0, Math.min(1, (this.currentSpeed - minSpd) / (maxSpd - minSpd)));
-    let calculatedRpm = minRpm + Math.pow(gearRatio, 1.15) * (maxRpm - minRpm);
+    const ratio = Math.max(0, Math.min(1, (this.currentSpeed - minSpd) / (maxSpd - minSpd)));
+    let rpm = minRpm + Math.pow(ratio, 1.1) * (maxRpm - minRpm) + 500 * this.nitroLevel * ratio;
 
-    // Clutch dip effect during shift (~85ms)
     if (this.isShifting) {
-      const shiftElapsed = nowPerf - this.shiftStartTime;
-      if (shiftElapsed < 85) {
-        calculatedRpm *= 0.78; // Momentary RPM drop as clutch disengages
-      } else {
-        this.isShifting = false;
-      }
+      const el = nowPerf - this.shiftStartTime;
+      if (el < 90) rpm *= 0.76; // corte de embrague
+      else this.isShifting = false;
     }
 
-    // Engine flywheel inertia (RPM builds smoothly, decays naturally)
-    const rpmInertia = targetKmH > this.currentSpeed ? 4.5 : 2.5;
-    this.currentRpm += (calculatedRpm - this.currentRpm) * Math.min(1, dt * rpmInertia);
+    const inertia = targetKmH > this.currentSpeed ? 5 : 2.6;
+    this.currentRpm += (rpm - this.currentRpm) * Math.min(1, dt * inertia);
 
-    // Throttle decay
-    this.throttle = Math.max(0, this.throttle - dt * 1.6);
+    // Acelerador y presion de turbo
+    this.throttle = Math.max(0, this.throttle - dt * 1.7);
+    const boostTarget = Math.min(1, this.throttle * (0.35 + this.currentSpeed / 140)) + this.nitroLevel * 0.5;
+    this.boost += (boostTarget - this.boost) * Math.min(1, dt * (boostTarget > this.boost ? 3 : 6));
 
-    // Audio parameter updates
-    const audioNow = this.ctx.currentTime;
-    // Firing frequency (Hz) for 4-stroke 4-cylinder engine
-    const firingFreq = Math.max(25, (this.currentRpm / 60) * 2);
-    const camFreq = firingFreq * 0.5;
-
-    this.engineOscCylinder.frequency.setTargetAtTime(firingFreq, audioNow, 0.04);
-    this.engineOscCam.frequency.setTargetAtTime(camFreq, audioNow, 0.04);
-
-    // Muffler filter opens smoothly with RPM (380Hz at idle -> 760Hz at high RPM)
-    const filterCutoff = 380 + (this.currentRpm / 6000) * 380;
-    this.engineMufflerFilter.frequency.setTargetAtTime(filterCutoff, audioNow, 0.05);
-
-    // Volume level: soft, warm, gentle (not loud or distracting)
-    const idleVol = 0.022;
-    const speedVolBonus = (this.currentSpeed / 180) * 0.016;
-    const throttleBonus = this.throttle * 0.008;
-    const finalVolume = this.isMuted ? 0 : (idleVol + speedVolBonus + throttleBonus);
-
-    this.engineGain.gain.setTargetAtTime(finalVolume, audioNow, 0.05);
-
-    // Road/Air friction noise
-    if (this.engineAirGain) {
-      const airVol = this.isMuted ? 0 : (this.currentSpeed / 180) * 0.02;
-      this.engineAirGain.gain.setTargetAtTime(airVol, audioNow, 0.1);
+    // Soltar el acelerador a presion: blow-off y chasquidos de escape
+    if (this.prevThrottle > 0.7 && this.throttle < 0.45 && this.boost > 0.35) this.playBlowOff();
+    if (this.currentRpm > 2800 && this.throttle < 0.2 && this.currentSpeed > 40 &&
+        Math.random() < dt * 4 && t - this.lastPopTime > 0.09) {
+      this.lastPopTime = t;
+      this.playExhaustPop(0.5 + Math.random() * 0.5);
     }
+    this.prevThrottle = this.throttle;
+
+    // ---------- Aplicar parametros ----------
+    const fire = Math.max(24, (this.currentRpm / 60) * 2);
+    const tc = 0.035;
+    this.eOsc1.frequency.setTargetAtTime(fire, t, tc);
+    this.eOsc2.frequency.setTargetAtTime(fire * 0.5, t, tc);
+    this.eOsc3.frequency.setTargetAtTime(fire * 2.006, t, tc);
+    this.ePulse.frequency.setTargetAtTime(fire, t, tc);
+
+    const rpmN = Math.min(1, this.currentRpm / 6200);
+    // El lope solo se nota al ralenti
+    this.eLopeGain.gain.setTargetAtTime(Math.max(0, 1.8 * (1 - rpmN * 2.2)), t, 0.1);
+    this.eLope.frequency.setTargetAtTime(5.5 + rpmN * 3, t, 0.2);
+
+    // Brillo del motor: sube con rpm y con acelerador
+    const cutoff = 520 + rpmN * 2600 + this.throttle * 900 + this.nitroLevel * 700;
+    this.eLowpass.frequency.setTargetAtTime(cutoff, t, 0.05);
+    this.eExhaustPeak.frequency.setTargetAtTime(110 + rpmN * 170, t, 0.08);
+    this.eIntakePeak.frequency.setTargetAtTime(700 + rpmN * 1500, t, 0.08);
+
+    const core = this.isMuted ? 0 : 0.085 + rpmN * 0.07 + this.throttle * 0.05 + this.nitroLevel * 0.03;
+    this.eCoreGain.gain.setTargetAtTime(core, t, 0.05);
+    this.eRumbleOut.gain.setTargetAtTime(0.13 + this.throttle * 0.1 - rpmN * 0.05, t, 0.08);
+
+    this.eIntakeBP.frequency.setTargetAtTime(900 + rpmN * 2400, t, 0.1);
+    this.eIntakeGain.gain.setTargetAtTime(this.throttle * (0.012 + rpmN * 0.03), t, 0.06);
+
+    // Turbo: silbido de 2 a 7 kHz segun presion
+    this.eTurbo.frequency.setTargetAtTime(1900 + this.boost * 5200, t, 0.08);
+    this.eTurbo2.frequency.setTargetAtTime((1900 + this.boost * 5200) * 2.01, t, 0.08);
+    this.eTurboGain.gain.setTargetAtTime(Math.max(0, this.boost - 0.12) * 0.022, t, 0.1);
+
+    // Viento y rodadura
+    const spdN = Math.min(1.4, this.currentSpeed / 200);
+    this.eWindBP.frequency.setTargetAtTime(600 + spdN * 2400, t, 0.15);
+    this.eWindGain.gain.setTargetAtTime(Math.pow(spdN, 1.6) * 0.2, t, 0.12);
+    this.eRoadGain.gain.setTargetAtTime(Math.min(1, this.currentSpeed / 60) * 0.045 + spdN * 0.05, t, 0.12);
+
+    // Nitro
+    this.eNitroOsc.frequency.setTargetAtTime(fire * 3 + 90, t, tc);
+    this.eNitroBP.frequency.setTargetAtTime(1400 + this.nitroLevel * 1600, t, 0.1);
+    this.eNitroNoiseGain.gain.setTargetAtTime(this.nitroLevel * 0.1, t, 0.08);
+    this.eNitroOscGain.gain.setTargetAtTime(this.nitroLevel * 0.035, t, 0.08);
   }
 
   updateEngineSpeed(wpm) {
     this.targetWpm = Math.max(0, wpm);
-    // Every time the player is typing/accelerating, blip the throttle
-    if (wpm > 0) {
-      this.throttle = 1.0;
-    }
+    if (wpm > 0) this.throttle = 1.0; // cada tecla pisa el acelerador
   }
 
   stopEngine() {
     if (!this.engineRunning) return;
-
     if (this.engineAnimFrame) {
       cancelAnimationFrame(this.engineAnimFrame);
       this.engineAnimFrame = null;
     }
+    const t = this.ctx ? this.ctx.currentTime : 0;
+    if (this.engineBus && this.ctx) this.engineBus.gain.setTargetAtTime(0, t, 0.08);
+    this.engineRunning = false;
 
-    const now = this.ctx ? this.ctx.currentTime : 0;
-    if (this.engineGain && this.ctx) {
-      this.engineGain.gain.setTargetAtTime(0, now, 0.1);
-    }
-    if (this.engineAirGain && this.ctx) {
-      this.engineAirGain.gain.setTargetAtTime(0, now, 0.1);
-    }
-
+    const sources = this.engineSources || [];
+    const bus = this.engineBus;
+    this.engineSources = [];
+    this.eOsc1 = null; // detiene updateEnginePhysics
     setTimeout(() => {
-      try {
-        if (this.engineOscCylinder) this.engineOscCylinder.stop();
-        if (this.engineOscCam) this.engineOscCam.stop();
-        if (this.engineAirNoiseSource) this.engineAirNoiseSource.stop();
-      } catch (e) {}
-      this.engineRunning = false;
-      this.engineOscCylinder = null;
-      this.engineOscCam = null;
-      this.engineAirNoiseSource = null;
-    }, 120);
+      sources.forEach((s) => { try { s.stop(); } catch (e) {} });
+      try { if (bus) bus.disconnect(); } catch (e) {}
+    }, 400);
+  }
+
+  // ==========================================
+  // NITRO: ignicion y cierre
+  // ==========================================
+  setNitro(active) {
+    this.nitroTarget = active ? 1 : 0;
+    if (!this.ctx || this.isMuted) return;
+    this.init();
+    if (active) this.playNitroIgnite();
+    else this.playNitroEnd();
+  }
+
+  playNitroIgnite() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // Golpe grave al encender
+    const boom = ctx.createOscillator();
+    const boomG = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(110, now);
+    boom.frequency.exponentialRampToValueAtTime(34, now + 0.5);
+    boomG.gain.setValueAtTime(0.0001, now);
+    boomG.gain.exponentialRampToValueAtTime(0.5, now + 0.015);
+    boomG.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+    boom.connect(boomG).connect(this.masterGain);
+    boom.start(now); boom.stop(now + 0.6);
+
+    // Whoosh de aire barriendo hacia arriba
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(1.1, now);
+    bp.frequency.setValueAtTime(350, now);
+    bp.frequency.exponentialRampToValueAtTime(5200, now + 0.55);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, now);
+    ng.gain.exponentialRampToValueAtTime(0.4, now + 0.12);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    src.connect(bp).connect(ng).connect(this.masterGain);
+    src.start(now, Math.random() * 1.2); src.stop(now + 0.85);
+
+    // Spool-up del turbo
+    const riser = ctx.createOscillator();
+    const rg = ctx.createGain();
+    riser.type = 'sawtooth';
+    riser.frequency.setValueAtTime(260, now);
+    riser.frequency.exponentialRampToValueAtTime(2200, now + 0.6);
+    const rlp = ctx.createBiquadFilter();
+    rlp.type = 'lowpass';
+    rlp.frequency.setValueAtTime(1800, now);
+    rg.gain.setValueAtTime(0.0001, now);
+    rg.gain.exponentialRampToValueAtTime(0.07, now + 0.35);
+    rg.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+    riser.connect(rlp).connect(rg).connect(this.masterGain);
+    riser.start(now); riser.stop(now + 0.8);
+
+    // "Click" de valvula
+    this.playExhaustPop(1);
+  }
+
+  playNitroEnd() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    // Escape de presion
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(0.9, now);
+    bp.frequency.setValueAtTime(6000, now);
+    bp.frequency.exponentialRampToValueAtTime(1400, now + 0.6);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.28, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+    src.connect(bp).connect(g).connect(this.masterGain);
+    src.start(now, Math.random() * 1.2); src.stop(now + 0.7);
+    // Chasquidos
+    [0.05, 0.13, 0.22, 0.34].forEach((d, i) => {
+      setTimeout(() => this.playExhaustPop(0.9 - i * 0.15), d * 1000);
+    });
+  }
+
+  // Valvula blow-off del turbo al soltar
+  playBlowOff() {
+    if (this.isMuted || !this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(1.4, now);
+    bp.frequency.setValueAtTime(4200, now);
+    bp.frequency.exponentialRampToValueAtTime(1500, now + 0.35);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.11, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+    src.connect(bp).connect(g).connect(this.masterGain);
+    src.start(now, Math.random() * 1.2); src.stop(now + 0.4);
+
+    const chirp = ctx.createOscillator();
+    const cg = ctx.createGain();
+    chirp.type = 'sine';
+    chirp.frequency.setValueAtTime(2600, now);
+    chirp.frequency.exponentialRampToValueAtTime(900, now + 0.3);
+    cg.gain.setValueAtTime(0.0001, now);
+    cg.gain.exponentialRampToValueAtTime(0.025, now + 0.02);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+    chirp.connect(cg).connect(this.masterGain);
+    chirp.start(now); chirp.stop(now + 0.34);
+  }
+
+  // Chasquido corto de escape (backfire)
+  playExhaustPop(intensity = 1) {
+    if (this.isMuted || !this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(1.2, now);
+    bp.frequency.setValueAtTime(500 + Math.random() * 600, now);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.16 * intensity, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    src.connect(bp).connect(g).connect(this.masterGain);
+    src.start(now, Math.random() * 1.5); src.stop(now + 0.07);
+
+    const thump = ctx.createOscillator();
+    const tg = ctx.createGain();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(140, now);
+    thump.frequency.exponentialRampToValueAtTime(48, now + 0.06);
+    tg.gain.setValueAtTime(0.12 * intensity, now);
+    tg.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+    thump.connect(tg).connect(this.masterGain);
+    thump.start(now); thump.stop(now + 0.08);
+  }
+
+  // ==========================================
+  // PASADAS (postes, porticos): whoosh con barrido tipo Doppler y paneo estereo
+  // ==========================================
+  playPassBy({ kind = 'pole', side = 1, speed = 20 } = {}) {
+    if (this.isMuted || !this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    if (now - this.lastPassTime < 0.07) return;
+    this.lastPassTime = now;
+
+    const intensity = Math.min(1.3, speed / 55);
+    if (intensity < 0.15) return;
+    const isGantry = kind === 'gantry' || kind === 'finish';
+    const dur = isGantry ? 0.75 : 0.32;
+
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(isGantry ? 0.7 : 1.1, now);
+    // Doppler: agudo al acercarse, cae al alejarse
+    const f0 = isGantry ? 900 : 1500;
+    bp.frequency.setValueAtTime(f0, now);
+    bp.frequency.exponentialRampToValueAtTime(f0 * 2.3, now + dur * 0.4);
+    bp.frequency.exponentialRampToValueAtTime(f0 * 0.3, now + dur);
+
+    const g = ctx.createGain();
+    const peak = (isGantry ? 0.2 : 0.07) * intensity;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(peak, now + dur * 0.38);
+    g.gain.exponentialRampToValueAtTime(0.0005, now + dur);
+
+    let out = g;
+    if (ctx.createStereoPanner) {
+      const pan = ctx.createStereoPanner();
+      pan.pan.setValueAtTime(side * 0.35, now);
+      pan.pan.linearRampToValueAtTime(side * 0.95, now + dur);
+      g.connect(pan);
+      out = pan;
+    }
+    src.connect(bp).connect(g);
+    out.connect(this.masterGain);
+    src.start(now, Math.random() * 1.4);
+    src.stop(now + dur + 0.05);
+
+    if (isGantry) {
+      // Golpe de presion al pasar bajo la estructura
+      const th = ctx.createOscillator();
+      const tg = ctx.createGain();
+      th.type = 'sine';
+      th.frequency.setValueAtTime(90, now + dur * 0.3);
+      th.frequency.exponentialRampToValueAtTime(40, now + dur * 0.6);
+      tg.gain.setValueAtTime(0.0001, now + dur * 0.3);
+      tg.gain.exponentialRampToValueAtTime(0.12 * intensity, now + dur * 0.36);
+      tg.gain.exponentialRampToValueAtTime(0.0005, now + dur * 0.65);
+      th.connect(tg).connect(this.masterGain);
+      th.start(now + dur * 0.3); th.stop(now + dur * 0.7);
+    }
+  }
+
+  // ==========================================
+  // META: bocina, publico y barrido
+  // ==========================================
+  playFinishLine() {
+    if (this.isMuted) return;
+    this.init();
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    // Bocina de aire (dos tonos desafinados distorsionados)
+    const horn = ctx.createGain();
+    horn.gain.setValueAtTime(0.0001, now);
+    horn.gain.exponentialRampToValueAtTime(0.16, now + 0.04);
+    horn.gain.setValueAtTime(0.16, now + 0.9);
+    horn.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+    const sh = ctx.createWaveShaper();
+    sh.curve = this.makeDistortionCurve(25);
+    const hlp = ctx.createBiquadFilter();
+    hlp.type = 'lowpass';
+    hlp.frequency.setValueAtTime(2400, now);
+    [415.3, 523.25, 622.25].forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f * (1 + i * 0.002), now);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(i === 2 ? 0.3 : 0.5, now);
+      o.connect(og).connect(sh);
+      o.start(now); o.stop(now + 1.35);
+    });
+    sh.connect(hlp).connect(horn).connect(this.masterGain);
+
+    // Publico: ruido que crece, con aplausos (envolvente irregular)
+    const crowd = ctx.createBufferSource();
+    crowd.buffer = this.noiseBuffer;
+    crowd.loop = true;
+    const cbp = ctx.createBiquadFilter();
+    cbp.type = 'bandpass';
+    cbp.frequency.setValueAtTime(1100, now);
+    cbp.Q.setValueAtTime(0.4, now);
+    const cg = ctx.createGain();
+    const n = 80;
+    const env = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = i / (n - 1);
+      const swell = Math.min(1, x / 0.15) * Math.pow(1 - Math.max(0, (x - 0.55) / 0.45), 1.5);
+      env[i] = swell * (0.07 + Math.random() * 0.09);
+    }
+    cg.gain.setValueCurveAtTime(env, now + 0.25, 4.5);
+    crowd.connect(cbp).connect(cg).connect(this.masterGain);
+    crowd.start(now + 0.25, Math.random() * 1.2);
+    crowd.stop(now + 4.8);
+
+    // Barrido ascendente de celebracion
+    const sw = ctx.createOscillator();
+    const swg = ctx.createGain();
+    sw.type = 'triangle';
+    sw.frequency.setValueAtTime(500, now + 0.1);
+    sw.frequency.exponentialRampToValueAtTime(1600, now + 0.7);
+    swg.gain.setValueAtTime(0.0001, now + 0.1);
+    swg.gain.exponentialRampToValueAtTime(0.07, now + 0.3);
+    swg.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+    sw.connect(swg).connect(this.masterGain);
+    sw.start(now + 0.1); sw.stop(now + 0.85);
   }
 
   // ==========================================
