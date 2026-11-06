@@ -119,9 +119,8 @@ body, html {
 
 /* Glassmorphism Panels */
 .glass-panel {
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  /* Sin backdrop-filter: desenfocar el canvas WebGL en cada fotograma es muy caro y casi no se nota */
+  background: rgba(12, 7, 9, 0.93);
   border: 1px solid var(--border-neon);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
               inset 0 0 15px rgba(255, 23, 51, 0.05);
@@ -487,6 +486,50 @@ body, html {
   border-radius: 4px;
 }
 
+/* Aviso de render por software */
+.gpu-warning {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 300;
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 0.7rem 2.2rem 0.7rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 23, 51, 0.5);
+  background: rgba(14, 8, 10, 0.95);
+  color: var(--text-main);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.gpu-warning code { color: #ff4d5e; }
+.gpu-warning button {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+/* Pie de la sala: botones apilados con separación (antes se solapaban) */
+.room-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.9rem;
+  margin-top: 1.4rem;
+}
+
+.room-footer .btn {
+  flex-shrink: 0;
+}
+
+.room-footer .btn-danger-outline {
+  align-self: center;
+}
+
 .waiting-text {
   text-align: center;
   font-size: 0.9rem;
@@ -499,8 +542,7 @@ body, html {
   position: absolute;
   inset: 0;
   z-index: 100;
-  background: rgba(6, 4, 5, 0.85);
-  backdrop-filter: blur(10px);
+  background: rgba(6, 4, 5, 0.88);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -636,6 +678,12 @@ body, html {
   color: #f4eeee;
   text-shadow: 0 0 8px rgba(244, 238, 238, 0.5);
   font-weight: 600;
+}
+
+/* Letras completadas por el nitro: se distinguen de las tecleadas */
+.char-correct.char-nitro {
+  color: #ff4d5e;
+  text-shadow: 0 0 10px rgba(255, 23, 51, 0.8);
 }
 
 .char-error {
@@ -968,7 +1016,7 @@ body, html {
   .track-radar { width: 52px; height: 110px; padding: 0.35rem; }
 
   .countdown-number { font-size: 6rem; }
-  .btn, .color-btn, .btn-icon { min-height: 44px; }
+  .btn, .btn-icon { min-height: 44px; }
 }
 
 @keyframes tapPulse {
@@ -1039,4 +1087,77 @@ body, html {
 @media (max-width: 768px), (pointer: coarse) {
   .nitro-meter { min-width: 70px; }
   .nitro-track { height: 8px; }
+}
+
+/* =====================================================================
+   MÓVIL: lobby, cuenta atrás, HUD de carrera, resultados y botón de sonido
+   ===================================================================== */
+.countdown-subtext { text-align: center; width: 100%; padding: 0 1rem; }
+
+@media (max-width: 768px), (pointer: coarse) {
+  /* --- Lobby --- */
+  .lobby-card { gap: 1rem; padding: 1.1rem 1rem; }
+  .logo-title { font-size: 2rem; letter-spacing: 2px; }
+  .logo-subtitle { font-size: 0.8rem; }
+  .player-customizer { gap: 0.8rem; }
+  .color-picker { gap: 0.5rem; flex-wrap: wrap; }
+  .color-btn { width: 40px; height: 40px; min-width: 40px; min-height: 40px; flex: 0 0 auto; }
+  .room-header { flex-wrap: wrap; gap: 0.4rem 0.75rem; }
+  .room-info { flex-wrap: wrap; }
+  .room-code-badge { font-size: 1.1rem; letter-spacing: 2px; }
+  /* Dentro de una sala el formulario sobra: así la lista y el botón de iniciar se ven sin hacer scroll */
+  .lobby-card:has(#room-waiting:not(.hidden)) .player-customizer,
+  .lobby-card:has(#room-waiting:not(.hidden)) .lobby-actions { display: none; }
+  .players-list { max-height: 28dvh; }
+
+  /* --- Cuenta atrás --- */
+  .countdown-number { font-size: 5.5rem; }
+  .countdown-subtext { font-size: 0.85rem; letter-spacing: 2px; }
+
+  /* --- HUD de carrera --- */
+  .code-box-header { gap: 0.5rem; }
+  .code-title { flex: 1; min-width: 0; }
+  .code-title #code-snippet-title { max-width: none; }
+  .block-indicator { flex-shrink: 0; white-space: nowrap; font-size: 0.65rem; gap: 0.35rem; }
+  .block-dots { gap: 3px; }
+  .block-dots .dot { width: 6px; height: 6px; }
+
+  /* Panel inferior en dos filas (velocidad + nitro / estadísticas) para que todo quepa en 360 px */
+  .speedometer-panel {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 0.35rem 0.75rem;
+    padding: 0.5rem 0.7rem;
+  }
+  .nitro-meter { min-width: 0; }
+  .stats-row { grid-column: 1 / -1; justify-content: space-between; gap: 0.4rem; }
+  .stat-value { font-size: 0.9rem; }
+
+  /* Radar compacto: solo la barra con los pilotos (los textos META/SALIDA no caben en 40 px) */
+  .track-radar { width: 40px; height: 112px; padding: 0.4rem 0; justify-content: center; }
+  .radar-header, .radar-footer { display: none; }
+  .radar-track { height: 96px; }
+  .radar-player-dot { width: 11px; height: 11px; border-width: 1.5px; }
+
+  /* --- Resultados --- */
+  .results-card { padding: 1.1rem 1rem; gap: 1rem; max-height: 100%; overflow-y: auto; }
+  .results-title { font-size: 1.5rem; }
+  .winner-text { font-size: 0.95rem; }
+  .leader-row { padding: 0.6rem 0.8rem; }
+  .telemetry-box { padding: 0.6rem; }
+  .telemetry-value { font-size: 1.1rem; }
+
+  /* --- Botón de sonido: más pequeño y fuera del camino --- */
+  .audio-toggle-btn { width: 38px; height: 38px; top: 8px; right: 8px; bottom: auto; }
+  .audio-toggle-btn svg { width: 18px; height: 18px; }
+  /* En carrera va justo encima del radar (derecha), sin tapar el código ni el panel inferior */
+  body:has(#race-screen.active) .audio-toggle-btn { top: auto; bottom: 128px; right: 8px; }
+}
+
+/* Móvil en horizontal: el radar se oculta, el panel vuelve a una sola fila */
+@media (max-height: 480px) and (max-width: 1000px) {
+  .speedometer-panel { display: flex; gap: 0.75rem; }
+  .stats-row { grid-column: auto; gap: 0.8rem; }
+  body:has(#race-screen.active) .audio-toggle-btn { bottom: 64px; }
 }

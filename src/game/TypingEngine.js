@@ -35,6 +35,8 @@ export class TypingEngine {
     this.isActive = false;
 
     this.hasErrorState = false;
+    this.autoChars = new Set();
+    this.nitroToggle = false;
 
     // Nitro
     this.streak = 0;
@@ -178,6 +180,9 @@ export class TypingEngine {
     this.codeText = this.snippetSet.blocks[blockIndex].code;
     this.cursorIndex = 0;
     this.hasErrorState = false;
+    this.spans = null; // fuerza reconstruir los <span> del bloque nuevo
+    this.autoChars = new Set(); // letras que completó el nitro en este bloque
+    this.nitroToggle = false;
 
     this.renderCodeDisplay();
   }
@@ -185,39 +190,44 @@ export class TypingEngine {
   renderCodeDisplay() {
     if (!this.containerEl) return;
 
-    this.containerEl.innerHTML = '';
-
-    // Create span for each character with status class
-    for (let i = 0; i < this.codeText.length; i++) {
-      const char = this.codeText[i];
-      const charSpan = document.createElement('span');
-
-      if (char === '\n') {
-        charSpan.innerHTML = '↵\n';
-      } else if (char === ' ') {
-        charSpan.innerHTML = '&nbsp;';
-      } else {
-        charSpan.textContent = char;
-      }
-
-      if (i < this.cursorIndex) {
-        charSpan.className = 'char-correct';
-      } else if (i === this.cursorIndex) {
-        if (this.hasErrorState) {
-          charSpan.className = 'char-error char-cursor';
+    // Los <span> se crean una sola vez por bloque; después solo se actualizan las clases cambiadas
+    if (this.spansText !== this.codeText || !this.spans) {
+      this.containerEl.innerHTML = '';
+      const frag = document.createDocumentFragment();
+      this.spans = [];
+      this.spanClass = [];
+      for (let i = 0; i < this.codeText.length; i++) {
+        const char = this.codeText[i];
+        const charSpan = document.createElement('span');
+        if (char === '\n') {
+          charSpan.innerHTML = '↵\n';
+        } else if (char === ' ') {
+          charSpan.innerHTML = '&nbsp;';
         } else {
-          charSpan.className = 'char-pending char-cursor';
+          charSpan.textContent = char;
         }
-      } else {
-        charSpan.className = 'char-pending';
+        this.spans.push(charSpan);
+        this.spanClass.push('');
+        frag.appendChild(charSpan);
       }
+      this.containerEl.appendChild(frag);
+      this.spansText = this.codeText;
+    }
 
-      this.containerEl.appendChild(charSpan);
+    for (let i = 0; i < this.spans.length; i++) {
+      let cls;
+      if (i < this.cursorIndex) cls = this.autoChars.has(i) ? 'char-correct char-nitro' : 'char-correct';
+      else if (i === this.cursorIndex) cls = this.hasErrorState ? 'char-error char-cursor' : 'char-pending char-cursor';
+      else cls = 'char-pending';
+      if (this.spanClass[i] !== cls) {
+        this.spans[i].className = cls;
+        this.spanClass[i] = cls;
+      }
     }
 
     // Scroll active cursor into view
     // (scroll manual del contenedor: scrollIntoView movía toda la página al abrir el teclado móvil)
-    const activeSpan = this.containerEl.querySelector('.char-cursor');
+    const activeSpan = this.spans[this.cursorIndex] || null;
     if (activeSpan) {
       const c = this.containerEl;
       const top = activeSpan.offsetTop;
@@ -281,20 +291,28 @@ export class TypingEngine {
     this.lastTypedTime = now;
 
     // Check key correctness
-    if (typedKey === expectedChar && !this.hasErrorState) {
+    // Un fallo marca la letra en rojo y no avanza; basta pulsar la tecla correcta para continuar
+    // (no hace falta Backspace). Mientras tanto no hay tracción: el coche solo rueda por inercia.
+    if (typedKey === expectedChar) {
       // Correct keystroke!
       this.totalCorrectChars++;
       this.cursorIndex++;
       this.hasErrorState = false;
       this.autoIndent();
 
-      // NITRO activo: cada tecla correcta avanza un caracter extra (nunca salta un Enter)
+      // NITRO activo: una de cada dos teclas correctas completa además un carácter (x1.5).
+      // Nunca salta un Enter ni el último carácter del bloque (la última tecla siempre es real, así la
+      // meta se cruza justo al escribir la última letra). Las letras completadas se marcan aparte.
       if (this.nitroActive &&
-          this.cursorIndex < this.codeText.length &&
+          this.cursorIndex < this.codeText.length - 1 &&
           this.codeText[this.cursorIndex] !== '\n') {
-        this.cursorIndex++;
-        this.totalCorrectChars++;
-        this.autoIndent();
+        this.nitroToggle = !this.nitroToggle;
+        if (this.nitroToggle) {
+          this.autoChars.add(this.cursorIndex);
+          this.cursorIndex++;
+          this.totalCorrectChars++;
+          this.autoIndent();
+        }
       }
 
       // Racha para cargar el nitro
@@ -343,6 +361,7 @@ export class TypingEngine {
       }
     } else {
       // Error keystroke!
+      const wasInError = this.hasErrorState;
       this.hasErrorState = true;
       this.errorCount++;
       if (this.streak > 0) {
@@ -350,7 +369,7 @@ export class TypingEngine {
         this.onNitroChange({ active: this.nitroActive, charge: 0 });
       }
       this.updateStats();
-      this.renderCodeDisplay();
+      if (!wasInError) this.renderCodeDisplay();
       this.onError();
     }
   }

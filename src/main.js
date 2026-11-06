@@ -80,6 +80,8 @@ class CodeRaceApp {
   init() {
     // 1. Initialize 3D Canvas
     this.raceEngine.init();
+    if (import.meta.env && import.meta.env.DEV) window.__game = this; // depuración (solo en desarrollo)
+    this.warnIfSoftwareRendering();
     this.raceEngine.loadModels(); // usa public/models/car.glb si existe (Blender)
     this.raceEngine.onPassBy = (evt) => this.soundEngine.playPassBy(evt);
     this.raceEngine.onFinishCross = () => this.soundEngine.playFinishLine();
@@ -371,21 +373,53 @@ class CodeRaceApp {
 
     // 3. Start HUD Timer & Idle Speed Tick
     this.raceStartTime = Date.now();
+    this.lastKmh = null;
+    // Escala u/s -> km/h: escribiendo a W WPM de forma constante el HUD marca W * 1.6 km/h
+    const totalChars = this.currentSnippetSet.blocks.reduce((n, b) => n + b.code.length, 0);
+    const unitsPerWpm = (5 / 60) * (this.raceEngine.trackLength / Math.max(1, totalChars));
+    this.kmhPerUnit = 1.6 / unitsPerWpm;
+    this.wpmPerUnit = 1 / unitsPerWpm;
+
     if (this.timerInterval) clearInterval(this.timerInterval);
     this.timerInterval = setInterval(() => {
       this.updateHUDTimer();
-      // Tick effective speed decay if idle
       if (this.typingEngine && this.typingEngine.isActive) {
-        const effectiveWpm = this.typingEngine.getEffectiveSpeed();
-        const speedKmH = Math.round(effectiveWpm * 1.6);
-        this.hudSpeedEl.textContent = speedKmH;
-        this.soundEngine.updateEngineSpeed(effectiveWpm);
         const localId = this.multiplayerEngine.myPeerId;
-        if (localId) {
-          this.raceEngine.updatePlayerProgress(localId, this.typingEngine.getTotalRaceProgressPercent(), effectiveWpm, this.typingEngine.nitroActive);
-        }
+        // Un error de tecleo frena el coche
+        if (localId) this.raceEngine.setCarBrake(localId, this.typingEngine.hasErrorState);
+        this.updateSpeedReadout();
       }
-    }, 200);
+    }, 100);
+  }
+
+  // Si el navegador renderiza WebGL por software (sin aceleración de hardware) el juego va lento y pixelado:
+  // se avisa una vez con la solución.
+  warnIfSoftwareRendering() {
+    if (!this.raceEngine.softwareRender) return;
+    try { if (sessionStorage.getItem('gpuWarnDismissed')) return; } catch (_) { /* sin storage */ }
+    const box = document.createElement('div');
+    box.className = 'gpu-warning';
+    box.innerHTML = '<strong>Tu navegador está renderizando por software (sin GPU).</strong> ' +
+      'Para que el juego vaya fluido y nítido activa «Usar aceleración de gráficos cuando esté disponible» ' +
+      'en <code>chrome://settings/system</code> (o la opción equivalente de tu navegador) y reinícialo.' +
+      '<button type="button" aria-label="Cerrar aviso">✕</button>';
+    box.querySelector('button').addEventListener('click', () => {
+      box.remove();
+      try { sessionStorage.setItem('gpuWarnDismissed', '1'); } catch (_) { /* sin storage */ }
+    });
+    document.body.appendChild(box);
+  }
+
+  // Velocidad del HUD y del motor = velocidad REAL del coche (con inercia, nitro y frenos)
+  updateSpeedReadout(keyPressed = false) {
+    const v = this.raceEngine.getLocalSpeed();
+    const kmh = Math.round(v * (this.kmhPerUnit || 0));
+    if (this.lastKmh !== kmh) {
+      this.lastKmh = kmh;
+      this.hudSpeedEl.textContent = kmh;
+    }
+    this.soundEngine.updateEngineSpeed(v * (this.wpmPerUnit || 0), keyPressed);
+    return v * (this.wpmPerUnit || 0);
   }
 
   handleCharacterTyped(stats) {
@@ -393,11 +427,8 @@ class CodeRaceApp {
     this.hudWpmEl.textContent = stats.wpm;
     this.hudAccuracyEl.textContent = `${stats.accuracy}%`;
 
-    // Speed calculation
-    const effectiveWpm = this.typingEngine.getEffectiveSpeed();
-    const speedKmH = Math.round(effectiveWpm * 1.6);
-    this.hudSpeedEl.textContent = speedKmH;
-    this.soundEngine.updateEngineSpeed(effectiveWpm);
+    // Velocidad real del coche (HUD + motor)
+    const effectiveWpm = this.updateSpeedReadout(true);
 
     // Trigger turbo sound when accelerating in high speed zone
     if (effectiveWpm >= 75) {

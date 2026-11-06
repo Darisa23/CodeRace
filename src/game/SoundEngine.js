@@ -551,53 +551,68 @@ export class SoundEngine {
       return n;
     };
 
-    // ---------- NUCLEO DEL MOTOR ----------
-    // Frecuencia de encendido de un 4 cilindros 4T: rpm/60*2
-    this.eOsc1 = osc('sawtooth', 30);   // fundamental
-    this.eOsc2 = osc('square', 15);     // sub (cigueñal / bloque)
-    this.eOsc3 = osc('sawtooth', 60.2); // segundo armonico algo desafinado => aspereza
+    // ---------- NUCLEO DEL MOTOR: V10 de aspiración natural (estilo Lamborghini Huracán) ----------
+    // Un V10 4T tiene 5 explosiones por vuelta: frecuencia de encendido = rpm/60*5.
+    // Se sintetiza con una onda rica en armónicos (tren de pulsos con resonancias de escape),
+    // dos copias ligeramente desafinadas (desigualdad entre bancadas) y un sub grave.
+    const N = 40;
+    const re = new Float32Array(N), im = new Float32Array(N);
+    for (let h = 1; h < N; h++) {
+      // Pulso de combustión: espectro casi plano que cae suave; los armónicos "10" y "20"
+      // (una vuelta completa del cigüeñal) sobresalen y dan el carácter del V10
+      const base = 1 / Math.pow(h, 0.78);
+      const crank = (h % 5 === 0) ? 1.35 : 1;
+      im[h] = base * crank;
+    }
+    const engineWave = ctx.createPeriodicWave(re, im);
+    this.eOsc1 = osc('sine', 80); this.eOsc1.setPeriodicWave(engineWave);   // bancada A
+    this.eOsc3 = osc('sine', 80.4); this.eOsc3.setPeriodicWave(engineWave); // bancada B (batido)
+    this.eOsc2 = osc('triangle', 40);                                       // sub (cigüeñal)
 
     const mix = ctx.createGain();
     mix.gain.setValueAtTime(1, now);
-    const g1 = ctx.createGain(); g1.gain.setValueAtTime(0.55, now);
-    const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.35, now);
-    const g3 = ctx.createGain(); g3.gain.setValueAtTime(0.28, now);
+    const g1 = ctx.createGain(); g1.gain.setValueAtTime(0.5, now);
+    const g2 = ctx.createGain(); g2.gain.setValueAtTime(0.4, now);
+    const g3 = ctx.createGain(); g3.gain.setValueAtTime(0.42, now);
     this.eOsc1.connect(g1).connect(mix);
     this.eOsc2.connect(g2).connect(mix);
     this.eOsc3.connect(g3).connect(mix);
 
     const shaper = ctx.createWaveShaper();
-    shaper.curve = this.makeDistortionCurve(35);
+    shaper.curve = this.makeDistortionCurve(18);
     shaper.oversample = '2x';
 
     this.eExhaustPeak = ctx.createBiquadFilter(); // resonancia del escape
     this.eExhaustPeak.type = 'peaking';
-    this.eExhaustPeak.frequency.setValueAtTime(140, now);
-    this.eExhaustPeak.Q.setValueAtTime(1.6, now);
-    this.eExhaustPeak.gain.setValueAtTime(7, now);
+    this.eExhaustPeak.frequency.setValueAtTime(220, now);
+    this.eExhaustPeak.Q.setValueAtTime(1.4, now);
+    this.eExhaustPeak.gain.setValueAtTime(6, now);
 
-    this.eIntakePeak = ctx.createBiquadFilter();  // resonancia de la admision
+    this.eIntakePeak = ctx.createBiquadFilter();  // resonancia / rugido de la admisión (el "aullido" del V10)
     this.eIntakePeak.type = 'peaking';
-    this.eIntakePeak.frequency.setValueAtTime(950, now);
-    this.eIntakePeak.Q.setValueAtTime(1.2, now);
-    this.eIntakePeak.gain.setValueAtTime(4, now);
+    this.eIntakePeak.frequency.setValueAtTime(1400, now);
+    this.eIntakePeak.Q.setValueAtTime(1.0, now);
+    this.eIntakePeak.gain.setValueAtTime(7, now);
 
     this.eLowpass = ctx.createBiquadFilter();
     this.eLowpass.type = 'lowpass';
-    this.eLowpass.frequency.setValueAtTime(700, now);
-    this.eLowpass.Q.setValueAtTime(0.9, now);
+    this.eLowpass.frequency.setValueAtTime(1200, now);
+    this.eLowpass.Q.setValueAtTime(0.7, now);
 
     this.eCoreGain = ctx.createGain();
     this.eCoreGain.gain.setValueAtTime(0.1, now);
+    this.eCutGain = ctx.createGain();   // corte de encendido en los cambios / limitador
+    this.eCutGain.gain.setValueAtTime(1, now);
 
     mix.connect(shaper);
     shaper.connect(this.eExhaustPeak);
     this.eExhaustPeak.connect(this.eIntakePeak);
     this.eIntakePeak.connect(this.eLowpass);
     this.eLowpass.connect(this.eCoreGain);
-    this.eCoreGain.connect(bus);
+    this.eCoreGain.connect(this.eCutGain);
+    this.eCutGain.connect(bus);
 
-    // "Lope" del ralenti: pequeña modulacion de frecuencia lenta
+    // "Lope" del ralentí: pequeña modulación de frecuencia lenta
     this.eLope = osc('sine', 6.5);
     this.eLopeGain = ctx.createGain();
     this.eLopeGain.gain.setValueAtTime(1.6, now);
@@ -719,41 +734,43 @@ export class SoundEngine {
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
-    // El nitro empuja la velocidad percibida
     this.nitroLevel += (this.nitroTarget - this.nitroLevel) * Math.min(1, dt * 5);
-    const targetKmH = Math.max(0, this.targetWpm * 1.6) * (1 + 0.3 * this.nitroLevel);
+    // La velocidad que llega ya es la REAL del coche (con inercia y nitro): solo se suaviza un poco
+    const targetKmH = Math.max(0, this.targetWpm * 1.6);
+    this.currentSpeed += (targetKmH - this.currentSpeed) * Math.min(1, dt * 12);
 
-    // Inercia del vehiculo
-    const accelRate = targetKmH > this.currentSpeed ? 3.2 : 1.8;
-    this.currentSpeed += (targetKmH - this.currentSpeed) * Math.min(1, dt * accelRate);
+    // ---------- Caja automática de 6 marchas (tipo doble embrague) ----------
+    // rpm del motor = km/h * relación de la marcha; sube hasta ~7900 rpm y cambia
+    const GEAR_K = [0, 150, 92, 66, 50, 40, 33];   // rpm por km/h
+    const SHIFT_UP = 7900, SHIFT_DOWN = 3300, REDLINE = 8500, IDLE = 1000;
+    const spd = this.currentSpeed;
+    let wheelRpm = spd * GEAR_K[this.currentGear];
 
-    // Caja de 5 marchas
-    let targetGear = 1;
-    let minSpd = 0, maxSpd = 30, minRpm = 950, maxRpm = 4600;
-    if (this.currentSpeed > 130) { targetGear = 5; minSpd = 130; maxSpd = 240; minRpm = 3000; maxRpm = 6200; }
-    else if (this.currentSpeed > 88) { targetGear = 4; minSpd = 88; maxSpd = 140; minRpm = 2700; maxRpm = 5800; }
-    else if (this.currentSpeed > 52) { targetGear = 3; minSpd = 52; maxSpd = 98; minRpm = 2500; maxRpm = 5500; }
-    else if (this.currentSpeed > 24) { targetGear = 2; minSpd = 24; maxSpd = 60; minRpm = 2300; maxRpm = 5200; }
-
-    if (targetGear !== this.currentGear && this.currentSpeed > 15) {
-      const isUpshift = targetGear > this.currentGear;
-      this.currentGear = targetGear;
-      this.isShifting = true;
-      this.shiftStartTime = nowPerf;
-      this.playGearShiftSound(targetGear, isUpshift);
+    if (!this.isShifting) {
+      if (wheelRpm > SHIFT_UP && this.currentGear < 6) {
+        this.shiftGear(this.currentGear + 1, true, nowPerf);
+      } else if (wheelRpm < SHIFT_DOWN && this.currentGear > 1 && spd > 12) {
+        this.shiftGear(this.currentGear - 1, false, nowPerf);
+      }
+      wheelRpm = spd * GEAR_K[this.currentGear];
     }
 
-    const ratio = Math.max(0, Math.min(1, (this.currentSpeed - minSpd) / (maxSpd - minSpd)));
-    let rpm = minRpm + Math.pow(ratio, 1.1) * (maxRpm - minRpm) + 500 * this.nitroLevel * ratio;
+    // Embrague patinando en la salida / al ralentí: el motor sube con el acelerador aunque el coche vaya lento
+    const launchRpm = IDLE + this.throttle * 3800 * Math.max(0, 1 - spd / 28);
+    let rpmTarget = Math.max(wheelRpm, launchRpm, IDLE);
+
+    // Limitador de revoluciones (marcha larga, mucha velocidad)
+    this.limiter = false;
+    if (rpmTarget > REDLINE) { rpmTarget = REDLINE; this.limiter = true; }
 
     if (this.isShifting) {
       const el = nowPerf - this.shiftStartTime;
-      if (el < 90) rpm *= 0.76; // corte de embrague
-      else this.isShifting = false;
+      if (el > 170) this.isShifting = false;
     }
-
-    const inertia = targetKmH > this.currentSpeed ? 5 : 2.6;
-    this.currentRpm += (rpm - this.currentRpm) * Math.min(1, dt * inertia);
+    // el rpm cae muy rápido al subir de marcha y sube con energía al acelerar
+    const rising = rpmTarget > this.currentRpm;
+    const inertia = this.isShifting ? 30 : (rising ? 10 : 5);
+    this.currentRpm += (rpmTarget - this.currentRpm) * Math.min(1, dt * inertia);
 
     // Acelerador y presion de turbo
     this.throttle = Math.max(0, this.throttle - dt * 1.7);
@@ -762,34 +779,47 @@ export class SoundEngine {
 
     // Soltar el acelerador a presion: blow-off y chasquidos de escape
     if (this.prevThrottle > 0.7 && this.throttle < 0.45 && this.boost > 0.35) this.playBlowOff();
-    if (this.currentRpm > 2800 && this.throttle < 0.2 && this.currentSpeed > 40 &&
-        Math.random() < dt * 4 && t - this.lastPopTime > 0.09) {
+    // Retumbos al soltar el acelerador con el motor alto (petardeo de escape de un V10 deportivo)
+    if (this.currentRpm > 3500 && this.throttle < 0.2 && this.currentSpeed > 40 &&
+        Math.random() < dt * 7 && t - this.lastPopTime > 0.08) {
       this.lastPopTime = t;
-      this.playExhaustPop(0.5 + Math.random() * 0.5);
+      this.playExhaustPop(0.5 + Math.random() * 0.6);
     }
     this.prevThrottle = this.throttle;
 
+    // Los parámetros de audio se actualizan a ~20 Hz (hacerlo en cada fotograma saturaba la CPU)
+    if (t - (this.lastApplyTime || 0) < 0.05 && !this.isShifting) return;
+    this.lastApplyTime = t;
+
     // ---------- Aplicar parametros ----------
-    const fire = Math.max(24, (this.currentRpm / 60) * 2);
-    const tc = 0.035;
+    const fire = Math.max(30, (this.currentRpm / 60) * 5);   // V10: 5 explosiones por vuelta
+    const tc = 0.03;
     this.eOsc1.frequency.setTargetAtTime(fire, t, tc);
     this.eOsc2.frequency.setTargetAtTime(fire * 0.5, t, tc);
-    this.eOsc3.frequency.setTargetAtTime(fire * 2.006, t, tc);
+    this.eOsc3.frequency.setTargetAtTime(fire * 1.006, t, tc);
     this.ePulse.frequency.setTargetAtTime(fire, t, tc);
 
-    const rpmN = Math.min(1, this.currentRpm / 6200);
-    // El lope solo se nota al ralenti
-    this.eLopeGain.gain.setTargetAtTime(Math.max(0, 1.8 * (1 - rpmN * 2.2)), t, 0.1);
+    const rpmN = Math.min(1, this.currentRpm / 8500);
+    // El lope solo se nota al ralentí
+    this.eLopeGain.gain.setTargetAtTime(Math.max(0, 2.2 * (1 - rpmN * 3.5)), t, 0.1);
     this.eLope.frequency.setTargetAtTime(5.5 + rpmN * 3, t, 0.2);
 
-    // Brillo del motor: sube con rpm y con acelerador
-    const cutoff = 520 + rpmN * 2600 + this.throttle * 900 + this.nitroLevel * 700;
+    // Brillo del motor: sube con rpm y con acelerador (a tope el V10 "aúlla")
+    const cutoff = 900 + rpmN * 5400 + this.throttle * 1400 + this.nitroLevel * 800;
     this.eLowpass.frequency.setTargetAtTime(cutoff, t, 0.05);
-    this.eExhaustPeak.frequency.setTargetAtTime(110 + rpmN * 170, t, 0.08);
-    this.eIntakePeak.frequency.setTargetAtTime(700 + rpmN * 1500, t, 0.08);
+    this.eExhaustPeak.frequency.setTargetAtTime(180 + rpmN * 260, t, 0.08);
+    this.eIntakePeak.frequency.setTargetAtTime(1100 + rpmN * 2800, t, 0.08);
 
-    const core = this.isMuted ? 0 : 0.085 + rpmN * 0.07 + this.throttle * 0.05 + this.nitroLevel * 0.03;
+    const core = this.isMuted ? 0 : 0.075 + rpmN * 0.06 + this.throttle * 0.05 + this.nitroLevel * 0.03;
     this.eCoreGain.gain.setTargetAtTime(core, t, 0.05);
+
+    // Limitador: el encendido se corta y vuelve a ~16 Hz ("ta-ta-ta" en el corte de revoluciones)
+    if (this.limiter) {
+      const cut = Math.sin(t * 100) > 0.15 ? 1 : 0.2;
+      this.eCutGain.gain.setTargetAtTime(cut, t, 0.004);
+    } else if (!this.isShifting) {
+      this.eCutGain.gain.setTargetAtTime(1, t, 0.02);
+    }
     this.eRumbleOut.gain.setTargetAtTime(0.13 + this.throttle * 0.1 - rpmN * 0.05, t, 0.08);
 
     this.eIntakeBP.frequency.setTargetAtTime(900 + rpmN * 2400, t, 0.1);
@@ -798,7 +828,7 @@ export class SoundEngine {
     // Turbo: silbido de 2 a 7 kHz segun presion
     this.eTurbo.frequency.setTargetAtTime(1900 + this.boost * 5200, t, 0.08);
     this.eTurbo2.frequency.setTargetAtTime((1900 + this.boost * 5200) * 2.01, t, 0.08);
-    this.eTurboGain.gain.setTargetAtTime(Math.max(0, this.boost - 0.12) * 0.022, t, 0.1);
+    this.eTurboGain.gain.setTargetAtTime(Math.max(0, this.boost - 0.12) * 0.007 + this.nitroLevel * 0.012, t, 0.1);
 
     // Viento y rodadura
     const spdN = Math.min(1.4, this.currentSpeed / 200);
@@ -813,9 +843,33 @@ export class SoundEngine {
     this.eNitroOscGain.gain.setTargetAtTime(this.nitroLevel * 0.035, t, 0.08);
   }
 
-  updateEngineSpeed(wpm) {
+  // Cambio de marcha: corte de encendido breve, petardeo al subir y "blip" de doble embrague al bajar
+  shiftGear(newGear, isUpshift, nowPerf) {
+    this.currentGear = newGear;
+    this.isShifting = true;
+    this.shiftStartTime = nowPerf;
+    this.playGearShiftSound(newGear, isUpshift);
+    if (this.ctx && this.eCutGain) {
+      const t = this.ctx.currentTime;
+      const g = this.eCutGain.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      if (isUpshift) {
+        g.linearRampToValueAtTime(0.12, t + 0.025);   // corte
+        g.setValueAtTime(0.12, t + 0.11);
+        g.linearRampToValueAtTime(1, t + 0.17);
+        if (!this.isMuted) setTimeout(() => this.playExhaustPop(0.9), 70);
+      } else {
+        g.linearRampToValueAtTime(0.5, t + 0.03);
+        g.linearRampToValueAtTime(1, t + 0.14);
+      }
+    }
+  }
+
+  // wpm: velocidad real del coche en WPM-equivalentes; keyPressed: cada tecla correcta pisa el acelerador
+  updateEngineSpeed(wpm, keyPressed = false) {
     this.targetWpm = Math.max(0, wpm);
-    if (wpm > 0) this.throttle = 1.0; // cada tecla pisa el acelerador
+    if (keyPressed) this.throttle = 1.0;
   }
 
   stopEngine() {
@@ -1498,7 +1552,9 @@ export class SoundEngine {
   }
 
   // ==========================================
-  // PROCEDURAL CYBERPUNK SYNTHWAVE SOUNDTRACK
+  // SOUNDTRACK: synthwave / outrun procedural (La menor, 8 compases)
+  //   race: 134 BPM, bombo con sidechain, bajo rodante, arpegio + lead, risers y crash
+  //   lobby: 96 BPM, pads y plucks suaves   |   results: 84 BPM, calmado
   // ==========================================
   startMusic(mode = 'lobby') {
     this.init();
@@ -1511,42 +1567,91 @@ export class SoundEngine {
 
     this.isMusicPlaying = true;
     this.currentStep = 0;
-    // 112 BPM: 1 beat = 0.5357s, 16th note step = 0.1339s
-    this.stepDuration = (60 / 112) / 4;
+    this.buildMusicBus();
+    this.applyMusicTempo();
     this.nextStepTime = this.ctx.currentTime + 0.05;
-
     this.updateMusicVolume();
 
-    // High precision Web Audio lookahead scheduler loop (every 25ms, scheduling ~120ms ahead)
+    // Planificador con anticipación (cada 25 ms agenda ~150 ms por delante)
     if (this.musicInterval) clearInterval(this.musicInterval);
     this.musicInterval = setInterval(() => {
       if (!this.isMusicPlaying || !this.ctx) return;
-      while (this.nextStepTime < this.ctx.currentTime + 0.12) {
+      while (this.nextStepTime < this.ctx.currentTime + 0.15) {
         this.scheduleMusicStep(this.currentStep, this.nextStepTime);
         this.advanceMusicStep();
       }
     }, 25);
   }
 
+  // Bus de música: "duck" (sidechain) para tonales, reverb por convolución y delay sincronizado
+  buildMusicBus() {
+    if (this.musicDuck) return;
+    const ctx = this.ctx;
+
+    this.musicDuck = ctx.createGain();
+    this.musicDuck.connect(this.musicGain);
+
+    // Reverb: respuesta al impulso sintética (ruido con caída exponencial, estéreo)
+    const len = Math.floor(ctx.sampleRate * 1.6);   // IR corta: la convolución cuesta CPU en el hilo de audio
+    const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+    }
+    const conv = ctx.createConvolver();
+    conv.buffer = ir;
+    this.musicReverbIn = ctx.createGain();
+    const revOut = ctx.createGain();
+    revOut.gain.value = 0.55;
+    this.musicReverbIn.connect(conv);
+    conv.connect(revOut);
+    revOut.connect(this.musicGain);
+
+    // Delay con realimentación filtrada (corchea con puntillo)
+    this.musicDelay = ctx.createDelay(1.5);
+    const fb = ctx.createGain();
+    fb.gain.value = 0.36;
+    const fbLP = ctx.createBiquadFilter();
+    fbLP.type = 'lowpass';
+    fbLP.frequency.value = 2600;
+    this.musicDelayIn = ctx.createGain();
+    const delOut = ctx.createGain();
+    delOut.gain.value = 0.5;
+    this.musicDelayIn.connect(this.musicDelay);
+    this.musicDelay.connect(fbLP);
+    fbLP.connect(fb);
+    fb.connect(this.musicDelay);
+    fbLP.connect(delOut);
+    delOut.connect(this.musicGain);
+  }
+
+  applyMusicTempo() {
+    const bpm = this.musicMode === 'race' ? 134 : (this.musicMode === 'results' ? 84 : 96);
+    this.stepDuration = (60 / bpm) / 4;
+    if (this.musicDelay && this.ctx) {
+      this.musicDelay.delayTime.setTargetAtTime(this.stepDuration * 3, this.ctx.currentTime, 0.05);
+    }
+  }
+
   setMusicMode(mode) {
     this.musicMode = mode;
+    this.applyMusicTempo();
     this.updateMusicVolume();
   }
 
   updateMusicVolume() {
     if (!this.ctx || !this.musicGain) return;
     const now = this.ctx.currentTime;
-    let targetVol = 0.065;
-    if (this.musicMode === 'race') targetVol = 0.082;
-    else if (this.musicMode === 'lobby') targetVol = 0.060;
-    else if (this.musicMode === 'results') targetVol = 0.070;
-
+    let targetVol = 0.13;
+    if (this.musicMode === 'race') targetVol = 0.16;
+    else if (this.musicMode === 'lobby') targetVol = 0.12;
+    else if (this.musicMode === 'results') targetVol = 0.12;
     this.musicGain.gain.setTargetAtTime(targetVol, now, 0.15);
   }
 
   advanceMusicStep() {
     this.nextStepTime += this.stepDuration;
-    this.currentStep = (this.currentStep + 1) % 64; // 4-bar loop (64 16th notes)
+    this.currentStep = (this.currentStep + 1) % 128; // 8 compases de 16 semicorcheas
   }
 
   stopMusic() {
@@ -1560,270 +1665,315 @@ export class SoundEngine {
     this.isMusicPlaying = false;
   }
 
-  // Precision 16th-note step dispatcher
+  midiToFreq(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+
+  // Dispatcher de cada semicorchea
   scheduleMusicStep(step, time) {
     if (!this.ctx || !this.musicGain) return;
 
-    // 4-Bar Chord Progression: Dm -> F Maj -> Bb Maj -> C Maj
+    // Am | F | C | G | Am | F | Dm | E   (raíz del bajo, acorde en tríada)
+    const PROG = [
+      { root: 33, chord: [57, 60, 64] },   // Am
+      { root: 29, chord: [53, 57, 60] },   // F
+      { root: 36, chord: [55, 60, 64] },   // C
+      { root: 31, chord: [55, 59, 62] },   // G
+      { root: 33, chord: [57, 60, 64] },   // Am
+      { root: 29, chord: [53, 57, 60] },   // F
+      { root: 38, chord: [53, 57, 62] },   // Dm
+      { root: 40, chord: [56, 59, 64] }    // E
+    ];
     const bar = Math.floor(step / 16);
-    const stepInBar = step % 16;
+    const s = step % 16;
+    const { root, chord } = PROG[bar];
+    const mode = this.musicMode;
+    const race = mode === 'race';
+    const tones = [...chord, chord[0] + 12, chord[1] + 12, chord[2] + 12];   // 6 notas del acorde
 
-    // Chords and root frequencies
-    // Dm: D (73.42), F (87.31), A (110.00)
-    // F:  F (87.31), A (110.00), C (130.81)
-    // Bb: Bb (58.27), D (73.42), F (87.31)
-    // C:  C (65.41), E (82.41), G (98.00)
-    let rootFreq = 73.42;       // D2
-    let padNotes = [146.83, 174.61, 220.00, 293.66]; // D3, F3, A3, D4
-    let arpScale = [293.66, 349.23, 440.00, 523.25, 587.33, 698.46]; // Dm scale
+    // ---- PAD (un acorde por compás) ----
+    if (s === 0) this.playSynthPad(chord.map((n) => this.midiToFreq(n)), time);
 
-    if (bar === 1) {
-      rootFreq = 87.31;         // F2
-      padNotes = [174.61, 220.00, 261.63, 329.63]; // F3, A3, C4, E4
-      arpScale = [349.23, 440.00, 523.25, 659.25, 698.46, 783.99];
-    } else if (bar === 2) {
-      rootFreq = 58.27;         // Bb1
-      padNotes = [116.54, 146.83, 174.61, 233.08]; // Bb2, D3, F3, Bb3
-      arpScale = [233.08, 293.66, 349.23, 466.16, 587.33, 698.46];
-    } else if (bar === 3) {
-      rootFreq = 65.41;         // C2
-      padNotes = [130.81, 164.81, 196.00, 261.63]; // C3, E3, G3, C4
-      arpScale = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
+    // ---- BAJO ----
+    if (race) {
+      // Rodante en semicorcheas con salto de octava; el sidechain lo hace "respirar"
+      const oct = (s % 4 === 3) || (s === 10);
+      this.playSynthBass(this.midiToFreq(root + (oct ? 12 : 0)), time, s % 4 === 0, this.stepDuration * 0.9);
+    } else if (mode === 'lobby') {
+      if (s % 8 === 0) this.playSynthBass(this.midiToFreq(root), time, true, this.stepDuration * 6);
+    } else if (s === 0) {
+      this.playSynthBass(this.midiToFreq(root), time, true, this.stepDuration * 14);
     }
 
-    // 1. LUSH SYNTH AMBIENT PAD (Downbeat of each bar)
-    if (stepInBar === 0) {
-      this.playSynthPad(padNotes, time);
+    // ---- ARPEGIO (pluck con delay) ----
+    const arpPat = race ? [0, 1, 2, 3, 2, 1, 4, 3, 2, 1, 0, 1, 2, 3, 5, 4]
+                        : [0, -1, 2, -1, 1, -1, 3, -1, 2, -1, 4, -1, 3, -1, 1, -1];
+    const arpIdx = arpPat[s];
+    if (arpIdx >= 0 && (race || s % 2 === 0)) {
+      const vol = race ? (bar < 4 ? 0.7 : 1) : 0.55;
+      this.playSynthArp(this.midiToFreq(tones[arpIdx] + 12), time, vol);
     }
 
-    // 2. ROLLING ANALOG BASSLINE
-    if (this.musicMode === 'race') {
-      // Outrun/Cyberpunk rolling 16th bassline: root on even, octave on odd
-      const isOctave = (stepInBar % 2 === 1);
-      const bassFreq = isOctave ? rootFreq * 2 : rootFreq;
-      // Slight groove accentuation
-      const isAccent = (stepInBar % 4 === 0);
-      this.playSynthBass(bassFreq, time, isAccent, 0.12);
-    } else if (this.musicMode === 'lobby') {
-      // Gentle sub-bass pulse on quarter notes (steps 0, 4, 8, 12)
-      if (stepInBar % 4 === 0) {
-        this.playSynthBass(rootFreq, time, false, 0.32);
-      }
-    } else if (this.musicMode === 'results') {
-      // Calm whole note bass
-      if (stepInBar === 0) {
-        this.playSynthBass(rootFreq, time, true, 0.6);
-      }
+    // ---- LEAD (supersaw): segunda mitad de la sección, o toda en el lobby con notas largas ----
+    if (race && bar >= 4) {
+      const LEAD_A = { 0: 5, 3: 4, 6: 5, 8: 3, 10: 4, 12: 5 };   // índices en `tones` (+1 octava)
+      const LEAD_B = { 0: 4, 2: 5, 4: 4, 7: 3, 8: 4, 11: 5, 13: 4 };
+      const pat = (bar % 2 === 0) ? LEAD_A : LEAD_B;
+      if (pat[s] !== undefined) this.playSynthLead(this.midiToFreq(tones[pat[s]] + 12), time, this.stepDuration * 2.4);
+    } else if (mode === 'lobby' && (s === 0 || s === 8) && bar % 2 === 0) {
+      this.playSynthLead(this.midiToFreq(tones[s === 0 ? 4 : 5] + 12), time, this.stepDuration * 7, 0.6);
     }
 
-    // 3. HYPNOTIC CYBERPUNK ARPEGGIO / LEAD PLUCK
-    // Arpeggio rhythm pattern: 16th notes with rhythmic syncopation
-    const arpRhythm = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0];
-    if (arpRhythm[stepInBar]) {
-      const noteIndex = (step * 2 + bar) % arpScale.length;
-      const arpFreq = arpScale[noteIndex];
-      const volMultiplier = this.musicMode === 'race' ? 1.0 : 0.65;
-      this.playSynthArp(arpFreq, time, volMultiplier);
-    }
-
-    // 4. RETRO DRUMS (ONLY in 'race' mode!)
-    if (this.musicMode === 'race') {
-      // Kick drum on four-on-the-floor (steps 0, 4, 8, 12)
-      if (stepInBar % 4 === 0) {
+    // ---- BATERÍA (solo en carrera) ----
+    if (race) {
+      if (s % 4 === 0) {
         this.playSynthKick(time);
+        // sidechain: los tonales se agachan con el bombo y vuelven
+        const g = this.musicDuck.gain;
+        g.setValueAtTime(0.3, time);
+        g.linearRampToValueAtTime(1, time + this.stepDuration * 3.4);
       }
-      // Snare drum on 2 and 4 (steps 4, 12)
-      if (stepInBar === 4 || stepInBar === 12) {
-        this.playSynthSnare(time);
+      if (s === 4 || s === 12) this.playSynthSnare(time);
+      if (s % 4 === 2) this.playSynthHiHat(time, true);
+      else this.playSynthHiHat(time, false, s % 2 === 0 ? 0.9 : 0.5);
+
+      // Riser + redoble en el último compás de cada 8; crash al volver a empezar
+      if (bar === 7) {
+        if (s === 0) this.playRiser(time, this.stepDuration * 16);
+        if (s >= 8 && s % 2 === 0) this.playSynthSnare(time, 0.4 + (s - 8) * 0.12);
+        if (s >= 14) this.playSynthSnare(time, 1);
       }
-      // Off-beat open hi-hat (steps 2, 6, 10, 14) + ghost closed hats
-      if (stepInBar % 4 === 2) {
-        this.playSynthHiHat(time, true); // Open accent hat
-      } else if (stepInBar % 2 === 0) {
-        this.playSynthHiHat(time, false); // Subtle closed ghost hat
-      }
+      if (bar === 0 && s === 0) this.playCrash(time);
+    } else {
+      this.musicDuck.gain.setValueAtTime(1, time);
     }
   }
 
-  // --- SYNTH INSTRUMENT IMPLEMENTATIONS ---
+  // --- INSTRUMENTOS ---
+  // salida de un instrumento tonal: bus con sidechain + envíos de reverb/delay
+  routeTonal(node, time, { rev = 0, del = 0 } = {}) {
+    node.connect(this.musicDuck);
+    if (rev > 0) { const r = this.ctx.createGain(); r.gain.value = rev; node.connect(r); r.connect(this.musicReverbIn); }
+    if (del > 0) { const d = this.ctx.createGain(); d.gain.value = del; node.connect(d); d.connect(this.musicDelayIn); }
+  }
 
-  // 1. Lush Synth Pad (Blade Runner warm analog pad)
-  playSynthPad(chordNotes, time) {
-    const padDuration = this.stepDuration * 16 * 1.05; // Sustains across the full bar
-
-    chordNotes.forEach((freq, i) => {
-      // Dual detuned oscillators for thick analog chorus width
-      [-4, 4].forEach((detuneVal) => {
-        const osc = this.ctx.createOscillator();
-        const filter = this.ctx.createBiquadFilter();
-        const gain = this.ctx.createGain();
-
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, time);
-        osc.detune.setValueAtTime(detuneVal, time);
-
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(520, time);
-        filter.Q.setValueAtTime(1.0, time);
-
-        // Smooth swelling attack and crossfade release
-        const basePadVol = this.musicMode === 'lobby' ? 0.07 : 0.05;
-        gain.gain.setValueAtTime(0.001, time);
-        gain.gain.linearRampToValueAtTime(basePadVol, time + 0.35);
-        gain.gain.setValueAtTime(basePadVol, time + padDuration - 0.4);
-        gain.gain.linearRampToValueAtTime(0.001, time + padDuration);
-
-        osc.connect(filter);
-        filter.connect(gain);
-        gain.connect(this.musicGain);
-
-        osc.start(time);
-        osc.stop(time + padDuration);
+  // Pad: cuerda sintética cálida (2 sierras desafinadas por nota, filtro que se abre)
+  playSynthPad(freqs, time) {
+    const dur = this.stepDuration * 16 * 1.04;
+    const out = this.ctx.createGain();
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.8;
+    const open = this.musicMode === 'race' ? 1500 : 900;
+    filter.frequency.setValueAtTime(380, time);
+    filter.frequency.linearRampToValueAtTime(open, time + dur * 0.6);
+    filter.frequency.linearRampToValueAtTime(420, time + dur);
+    const vol = this.musicMode === 'race' ? 0.05 : 0.07;
+    out.gain.setValueAtTime(0.0001, time);
+    out.gain.linearRampToValueAtTime(vol, time + 0.5);
+    out.gain.setValueAtTime(vol, time + dur - 0.5);
+    out.gain.linearRampToValueAtTime(0.0001, time + dur);
+    freqs.forEach((f) => {
+      [-7, 7].forEach((cents) => {
+        const o = this.ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        o.detune.value = cents;
+        o.connect(filter);
+        o.start(time);
+        o.stop(time + dur + 0.02);
       });
     });
+    filter.connect(out);
+    this.routeTonal(out, time, { rev: 0.7 });
   }
 
-  // 2. Analog Synth Bass (Rolling 16th-note electro pulse)
-  playSynthBass(freq, time, isAccent, dur = 0.12) {
-    const osc = this.ctx.createOscillator();
-    const filter = this.ctx.createBiquadFilter();
-    const gain = this.ctx.createGain();
-
-    osc.type = this.musicMode === 'lobby' ? 'triangle' : 'sawtooth';
-    osc.frequency.setValueAtTime(freq, time);
-
-    filter.type = 'lowpass';
-    // Snappy resonant filter envelope
-    const startCutoff = isAccent ? 620 : 380;
-    const endCutoff = 110;
-    filter.frequency.setValueAtTime(startCutoff, time);
-    filter.frequency.exponentialRampToValueAtTime(endCutoff, time + dur * 0.75);
-    filter.Q.setValueAtTime(2.5, time);
-
-    const bassVol = isAccent ? 0.22 : 0.16;
-    gain.gain.setValueAtTime(bassVol, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.musicGain);
-
-    osc.start(time);
-    osc.stop(time + dur + 0.01);
+  // Bajo: sierra + sub senoidal con barrido de filtro
+  playSynthBass(freq, time, accent, dur = 0.12) {
+    const o = this.ctx.createOscillator();
+    const sub = this.ctx.createOscillator();
+    const f = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    o.type = 'sawtooth';
+    sub.type = 'sine';
+    o.frequency.value = freq;
+    sub.frequency.value = freq;
+    f.type = 'lowpass';
+    f.Q.value = 5;
+    const lobby = this.musicMode !== 'race';
+    f.frequency.setValueAtTime(lobby ? 380 : (accent ? 1500 : 950), time);
+    f.frequency.exponentialRampToValueAtTime(lobby ? 150 : 170, time + Math.max(0.05, dur * 0.8));
+    const vol = lobby ? 0.2 : (accent ? 0.3 : 0.23);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(vol, time + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur);
+    o.connect(f);
+    sub.connect(g);
+    f.connect(g);
+    this.routeTonal(g, time);
+    o.start(time); sub.start(time);
+    o.stop(time + dur + 0.02); sub.stop(time + dur + 0.02);
   }
 
-  // 3. Cyberpunk Arpeggio / Lead Pluck
-  playSynthArp(freq, time, volMultiplier = 1.0) {
-    const osc = this.ctx.createOscillator();
-    const filter = this.ctx.createBiquadFilter();
-    const gain = this.ctx.createGain();
-
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(freq, time);
-
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1800, time);
-    filter.frequency.exponentialRampToValueAtTime(450, time + 0.11);
-    filter.Q.setValueAtTime(3.0, time);
-
-    const arpVol = 0.045 * volMultiplier;
-    gain.gain.setValueAtTime(arpVol, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.musicGain);
-
-    osc.start(time);
-    osc.stop(time + 0.13);
+  // Arpegio: pluck corto con eco
+  playSynthArp(freq, time, vol = 1) {
+    const o = this.ctx.createOscillator();
+    const f = this.ctx.createBiquadFilter();
+    const g = this.ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.value = freq;
+    f.type = 'lowpass';
+    f.Q.value = 2.5;
+    f.frequency.setValueAtTime(3600, time);
+    f.frequency.exponentialRampToValueAtTime(700, time + 0.14);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(0.05 * vol, time + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.17);
+    o.connect(f);
+    f.connect(g);
+    this.routeTonal(g, time, { rev: 0.25, del: 0.55 });
+    o.start(time);
+    o.stop(time + 0.19);
   }
 
-  // 4. Retro Synthwave 808 Kick Drum
+  // Lead: supersaw (3 sierras desafinadas) con vibrato suave y eco
+  playSynthLead(freq, time, dur, vol = 1) {
+    const g = this.ctx.createGain();
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = 1.2;
+    f.frequency.setValueAtTime(3800, time);
+    f.frequency.exponentialRampToValueAtTime(1600, time + dur);
+    const a = 0.055 * vol;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(a, time + 0.012);
+    g.gain.setValueAtTime(a, time + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur + 0.12);
+    [-14, 0, 14].forEach((cents) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = freq;
+      o.detune.value = cents;
+      o.connect(f);
+      o.start(time);
+      o.stop(time + dur + 0.14);
+    });
+    f.connect(g);
+    this.routeTonal(g, time, { rev: 0.5, del: 0.6 });
+  }
+
+  // Bombo 808 con golpe seco
   playSynthKick(time) {
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-
-    osc.type = 'sine';
-    // Tight pitch drop from 145Hz down to 42Hz
-    osc.frequency.setValueAtTime(145, time);
-    osc.frequency.exponentialRampToValueAtTime(42, time + 0.08);
-
-    gain.gain.setValueAtTime(0.38, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.14);
-
-    osc.connect(gain);
-    gain.connect(this.musicGain);
-
-    osc.start(time);
-    osc.stop(time + 0.15);
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(170, time);
+    o.frequency.exponentialRampToValueAtTime(46, time + 0.09);
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(0.55, time + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+    o.connect(g);
+    g.connect(this.musicGain);
+    o.start(time);
+    o.stop(time + 0.22);
   }
 
-  // 5. Retro Snare Drum (Body punch + noise snap)
-  playSynthSnare(time) {
-    // Tonal body
-    const osc = this.ctx.createOscillator();
-    const oscGain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(185, time);
-    osc.frequency.exponentialRampToValueAtTime(80, time + 0.05);
-
-    oscGain.gain.setValueAtTime(0.18, time);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
-
-    osc.connect(oscGain);
-    oscGain.connect(this.musicGain);
-    osc.start(time);
-    osc.stop(time + 0.07);
-
-    // Snappy noise rattle
-    if (this.noiseBuffer) {
-      const noiseSource = this.ctx.createBufferSource();
-      noiseSource.buffer = this.noiseBuffer;
-      noiseSource.offset = Math.random() * 1.5;
-
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(2100, time);
-      filter.Q.setValueAtTime(2.2, time);
-
-      const noiseGain = this.ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.16, time);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.11);
-
-      noiseSource.connect(filter);
-      filter.connect(noiseGain);
-      noiseGain.connect(this.musicGain);
-
-      noiseSource.start(time);
-      noiseSource.stop(time + 0.12);
-    }
-  }
-
-  // 6. Crisp Electro Hi-Hat
-  playSynthHiHat(time, isOpen = false) {
+  // Caja con palmada (ruido en ráfagas + cuerpo) y cola de reverb
+  playSynthSnare(time, vel = 1) {
     if (!this.noiseBuffer) return;
+    const body = this.ctx.createOscillator();
+    const bg = this.ctx.createGain();
+    body.type = 'triangle';
+    body.frequency.setValueAtTime(220, time);
+    body.frequency.exponentialRampToValueAtTime(110, time + 0.07);
+    bg.gain.setValueAtTime(0.16 * vel, time);
+    bg.gain.exponentialRampToValueAtTime(0.001, time + 0.09);
+    body.connect(bg);
+    bg.connect(this.musicGain);
+    body.start(time);
+    body.stop(time + 0.1);
 
-    const noiseSource = this.ctx.createBufferSource();
-    noiseSource.buffer = this.noiseBuffer;
-    noiseSource.offset = Math.random() * 1.5;
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 1800;
+    f.Q.value = 0.9;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, time);
+    ng.gain.linearRampToValueAtTime(0.26 * vel, time + 0.002);
+    ng.gain.setValueAtTime(0.1 * vel, time + 0.012);
+    ng.gain.linearRampToValueAtTime(0.22 * vel, time + 0.014);
+    ng.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+    n.connect(f);
+    f.connect(ng);
+    ng.connect(this.musicGain);
+    const r = this.ctx.createGain();
+    r.gain.value = 0.45;
+    ng.connect(r);
+    r.connect(this.musicReverbIn);
+    n.start(time, Math.random() * 1.5);
+    n.stop(time + 0.22);
+  }
 
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'highpass';
-    filter.frequency.setValueAtTime(isOpen ? 6000 : 7500, time);
+  playSynthHiHat(time, isOpen = false, vel = 1) {
+    if (!this.noiseBuffer) return;
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = isOpen ? 6500 : 8000;
+    const g = this.ctx.createGain();
+    const v = (isOpen ? 0.075 : 0.04) * vel;
+    const d = isOpen ? 0.11 : 0.03;
+    g.gain.setValueAtTime(v, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + d);
+    n.connect(f);
+    f.connect(g);
+    g.connect(this.musicGain);
+    n.start(time, Math.random() * 1.5);
+    n.stop(time + d + 0.01);
+  }
 
-    const gain = this.ctx.createGain();
-    const hatVol = isOpen ? 0.07 : 0.035;
-    const dur = isOpen ? 0.065 : 0.025;
+  // Riser: ruido con barrido de filtro ascendente antes de la caída
+  playRiser(time, dur) {
+    if (!this.noiseBuffer) return;
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    n.loop = true;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 1.6;
+    f.frequency.setValueAtTime(300, time);
+    f.frequency.exponentialRampToValueAtTime(9000, time + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.16, time + dur * 0.97);
+    g.gain.linearRampToValueAtTime(0.0001, time + dur);
+    n.connect(f);
+    f.connect(g);
+    g.connect(this.musicGain);
+    n.start(time, Math.random() * 1.2);
+    n.stop(time + dur + 0.02);
+  }
 
-    gain.gain.setValueAtTime(hatVol, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
-
-    noiseSource.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.musicGain);
-
-    noiseSource.start(time);
-    noiseSource.stop(time + dur + 0.005);
+  // Crash al comenzar cada sección de 8 compases
+  playCrash(time) {
+    if (!this.noiseBuffer) return;
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuffer;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'highpass';
+    f.frequency.value = 5200;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.14, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 1.3);
+    n.connect(f);
+    f.connect(g);
+    g.connect(this.musicGain);
+    const r = this.ctx.createGain();
+    r.gain.value = 0.5;
+    g.connect(r);
+    r.connect(this.musicReverbIn);
+    n.start(time, Math.random() * 0.6);
+    n.stop(time + 1.35);
   }
 }
-

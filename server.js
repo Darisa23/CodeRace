@@ -1,8 +1,11 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { createServer as createViteServer } from 'vite';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
@@ -239,12 +242,30 @@ async function startServer() {
     socket.on('disconnect', handleLeave);
   });
 
-  // Attach Vite middleware in development mode
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa'
-  });
-  app.use(vite.middlewares);
+  // Producción: sirve el build minificado de dist/ (npm run build). Es lo que debe llegar al celular:
+  // un solo JS/CSS con hash, en caché, en vez de decenas de módulos sin minificar del servidor de desarrollo.
+  // Si dist/ no existe (p. ej. el despliegue no ejecutó el build) se usa Vite en desarrollo como respaldo.
+  const distDir = path.join(__dirname, 'dist');
+  const hasBuild = fs.existsSync(path.join(distDir, 'index.html'));
+  const isProd = process.env.NODE_ENV === 'production' || process.env.SERVE_DIST === '1';
+
+  if (isProd && hasBuild) {
+    app.use('/assets', express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true }));
+    app.use(express.static(distDir, { maxAge: '1h' }));
+    app.use((req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.sendFile(path.join(distDir, 'index.html'));
+    });
+    console.log('Sirviendo el build de producción (dist/)');
+  } else {
+    if (isProd) console.warn('NODE_ENV=production pero no existe dist/: ejecuta "npm run build". Se usa Vite en desarrollo.');
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa'
+    });
+    app.use(vite.middlewares);
+  }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🏎️  Servidor WebSocket CodeRace corriendo en http://0.0.0.0:${PORT}\n`);
