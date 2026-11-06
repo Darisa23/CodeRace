@@ -195,6 +195,8 @@ class CodeRaceApp {
     };
     document.addEventListener('click', startAudioOnFirstInteraction, { once: true });
     document.addEventListener('keydown', startAudioOnFirstInteraction, { once: true });
+    // Móvil: el AudioContext se suspende al cerrar el teclado o cambiar de app; se reanuda en el siguiente toque
+    ['pointerdown', 'touchend'].forEach(ev => document.addEventListener(ev, startAudioOnFirstInteraction, { passive: true }));
   }
 
   showScreen(screenName) {

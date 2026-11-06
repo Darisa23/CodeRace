@@ -129,8 +129,10 @@ export class TypingEngine {
     this.inputEl.addEventListener('input', this.handleInput);
     this.inputEl.addEventListener('blur', this.handleInputBlur);
     this.inputEl.addEventListener('focus', () => this.onInputFocusChange(true));
-    // Cualquier toque durante la carrera devuelve el foco (y el teclado) al campo de entrada
-    document.addEventListener('pointerup', this.focusInput);
+    // Cualquier toque durante la carrera devuelve el foco (y el teclado) al campo de entrada.
+    // Se usa 'click' (último evento de la secuencia táctil): con 'pointerup' el mousedown posterior
+    // sobre el canvas quitaba el foco y el teclado se cerraba de inmediato.
+    document.addEventListener('click', this.focusInput);
     this.focusInput();
 
     // NUEVO: arranca el contador de límite de tiempo
@@ -140,7 +142,7 @@ export class TypingEngine {
   stop() {
     this.isActive = false;
     window.removeEventListener('keydown', this.handleKeyDown);
-    document.removeEventListener('pointerup', this.focusInput);
+    document.removeEventListener('click', this.focusInput);
     if (this.inputEl) {
       this.inputEl.removeEventListener('input', this.handleInput);
       this.inputEl.removeEventListener('blur', this.handleInputBlur);
